@@ -15,7 +15,7 @@ Livox MID360 sensor.
 <!-- Replace the link below with your YouTube / unlisted video URL -->
 [![Demo Video](https://img.shields.io/badge/Watch%20Demo-YouTube-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/watch?v=PLACEHOLDER)
 
-> *Video coming soon — will show mapping, global re-localization, and people filtering in a live indoor environment.*
+> *Video coming soon — will show mapping, global re-localization, and people filtering in an indoor environment.*
 
 ---
 

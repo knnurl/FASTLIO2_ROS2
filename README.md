@@ -10,21 +10,31 @@ Livox MID360 sensor.
 
 ---
 
+## Demo
+
+<!-- Replace the link below with your YouTube / unlisted video URL -->
+[![Demo Video](https://img.shields.io/badge/Watch%20Demo-YouTube-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/watch?v=PLACEHOLDER)
+
+> *Video coming soon — will show mapping, global re-localization, and people filtering in a live indoor environment.*
+
+---
+
 ## Table of Contents
 
-1. [What's New in This Fork](#whats-new-in-this-fork)
-2. [System Architecture](#system-architecture)
-3. [Package Overview](#package-overview)
-4. [Prerequisites](#prerequisites)
-5. [Installation](#installation)
-6. [Usage](#usage)
+1. [Demo](#demo)
+2. [What's New in This Fork](#whats-new-in-this-fork)
+3. [System Architecture](#system-architecture)
+4. [Package Overview](#package-overview)
+5. [Prerequisites](#prerequisites)
+6. [Installation](#installation)
+7. [Usage](#usage)
    - [GUI Control Panel](#gui-control-panel)
    - [Mapping](#mapping)
    - [Localization](#localization)
    - [People Filter](#people-filter)
    - [Semantic Segmentation](#semantic-segmentation)
-7. [ROS2 Topics & Services](#ros2-topics--services)
-8. [Configuration Reference](#configuration-reference)
+8. [ROS2 Topics & Services](#ros2-topics--services)
+9. [Configuration Reference](#configuration-reference)
 9. [Credits](#credits)
 
 ---

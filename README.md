@@ -15,7 +15,7 @@ Livox MID360 sensor.
 <!-- Replace the link below with your YouTube / unlisted video URL -->
 [![Demo Video](https://img.shields.io/badge/Watch%20Demo-YouTube-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/watch?v=PLACEHOLDER)
 
-> *Video coming soon — will show mapping, global re-localization, and people filtering in an indoor environment.*
+> *Video coming soon — will show mapping, global re-localization, and people filtering in a live indoor environment.*
 
 ---
 
@@ -49,6 +49,40 @@ interface definitions (`interface`).
 This fork adds the following on top:
 
 ### Algorithmic Contributions
+
+**Extended Localizer** (modifications to `localizer/`)
+
+The upstream localizer supported manual ICP-only localization (pose hint required).
+The following were added on top — the original ICP path is explicitly left unchanged
+(`// ICP mode (original logic, unchanged)` comment in `localizer_node.cpp`):
+
+- **Global mode state machine** — a four-state FSM (IDLE → SEARCHING → TRACKING → LOST)
+  that drives the full localization lifecycle without any user-provided pose hint.
+- **Asynchronous global search** — the NDT+ICP grid search runs in a `std::async` thread
+  with an odometry snapshot taken at launch time, so the map↔local offset is anchored
+  to the correct moment even after a multi-second search.
+- **Pose persistence with map-staleness detection** — the current map↔body transform is
+  saved to YAML on disk at a configurable rate. On restart, `loadPose()` cross-checks the
+  saved pose against the map file's modification time and silently discards it if the map
+  has changed, falling back to a full global search.
+- **ICP jump guard** — after each ICP alignment the result translation is compared against
+  the odometry prediction; results exceeding `icp_max_jump_m` are rejected as wrong local
+  minima rather than corrupting the offset.
+- **Progressive ICP recovery** — at the half-failure threshold, correspondence distances
+  are widened by `recovery_corr_scale` to give ICP a wider reach before a full global
+  search is triggered. Distances are restored automatically once tracking recovers.
+- **LIO dead-reckoning fallback** — if a global search fails *after* the robot previously
+  had a good pose (i.e. entered unmapped territory), the node holds LIO dead-reckoning
+  instead of entering an IDLE→SEARCH→FAIL spin that would corrupt the position estimate.
+- **Degenerate scan guard** — scans below `min_cloud_points` are skipped entirely,
+  preventing wasted ICP computation on empty or nearly-empty returns.
+- **Hot-reload of merged map** — after `stop_mapping` saves a merged PCD, the node
+  reloads it into both the ICP and global localizers on the next timer tick without
+  requiring a restart.
+- **Two-stage adaptive ICP** (`icp_localizer.cpp`) — rough and refine stages use separate
+  voxel resolutions; if the rough fitness is marginal, the refine correspondence distance
+  is automatically widened via `recovery_corr_scale` to avoid divergence from a
+  slightly-off starting point.
 
 **Adaptive DBSCAN People Filter** (`lidar_people_filter`)
 
@@ -103,8 +137,8 @@ Integration of RandLA-Net (CVPR 2020) for per-scan SemanticKITTI labelling:
                 │ /livox/lidar  /livox/imu
                 ▼
 ┌──────────────────────────────────────────┐
-│          FASTLIO2  LIO Node  (C++)       │
-│  IESKF  ·  ikd-Tree  ·  IMU Integrator   │
+│          FASTLIO2  LIO Node  (C++)        │
+│  IESKF  ·  ikd-Tree  ·  IMU Integrator  │
 │                                          │
 │  /fastlio2/body_cloud   (body frame)     │
 │  /fastlio2/world_cloud  (world frame)    │

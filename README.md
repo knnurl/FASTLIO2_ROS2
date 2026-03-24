@@ -140,7 +140,7 @@ source ~/livox_ws/install/setup.bash
 
 # 2. Clone this repo into your ROS2 workspace
 cd ~/ros2_ws/src
-git clone https://github.com/<your-username>/FASTLIO2_ROS2.git
+git clone https://github.com/knnurl/FASTLIO2_ROS2.git
 
 # 3. Build
 cd ~/ros2_ws

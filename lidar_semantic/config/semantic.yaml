@@ -1,0 +1,54 @@
+randlanet_node:
+  ros__parameters:
+
+    # ── Input ─────────────────────────────────────────────────────────────────
+    # Use the people-filtered cloud if running alongside dbscan_filter_node,
+    # otherwise use the raw body cloud.
+    input_topic: /fastlio2/body_cloud  # _filtered
+
+    # ── Model ─────────────────────────────────────────────────────────────────
+    # Path to pretrained checkpoint (.pth or .tar).
+    # Run scripts/download_weights.py to get SemanticKITTI weights.
+    # Leave empty to run with random weights (useful for pipeline testing).
+    model_path: "/home/local/ISDADS/ses634/fastlio2_ws/src/lidar_semantic/weights/semantickitti_tsunghan_1d.tar"
+
+    # cpu or cuda (requires PyTorch with CUDA support)
+    device: cuda
+
+    # Number of points passed to the network per inference call.
+    # Input cloud is randomly subsampled (if more) or PADDED (if fewer) to this count.
+    #
+    # Livox MID360 at 10 Hz produces ~20 000 pts/frame.  Keeping num_points
+    # BELOW that guarantees we always subsample and NEVER pad.  Padding by
+    # random duplication triples the cloud with synthetic points, corrupts the
+    # KNN neighbourhood geometry the network relies on, and is the primary
+    # reason detection fails on MID360 data.
+    #
+    #   16 384  — safe for MID360 (always subsample), good GPU quality
+    #    8 192  — CPU-practical (~500 ms/frame), still no padding on MID360
+    num_points: 16384
+
+    # K nearest neighbours — must match the pretrained model (16 for SemanticKITTI)
+    num_neighbors: 16
+
+    # Number of output classes (19 for SemanticKITTI)
+    num_classes: 19
+
+    # ── Performance ───────────────────────────────────────────────────────────
+    # Run inference on every Nth incoming cloud.
+    # At 10 Hz LIO output, decimation=3 → ~3.3 Hz semantic updates.
+    # Reduce if you have a GPU; increase on slow CPUs.
+    decimation: 1
+
+    # Per-point softmax confidence threshold (0–1).
+    # Points below this are kept in labelled_cloud but excluded from
+    # person_cloud / ground_cloud filtered outputs.
+    # Lower = more sensitive (catches more people, more false positives).
+    # The SemanticKITTI model has lower average confidence on Livox/indoor data
+    # due to domain shift, so keeping this low (0.2–0.3) is recommended.
+    score_threshold: 0.2
+
+    # XY-plane radius (metres) for grouping person-class points into individual
+    # people.  Each cluster gets its own marker.  Increase if people are being
+    # split into multiple markers; decrease if two nearby people merge into one.
+    person_cluster_radius: 0.8

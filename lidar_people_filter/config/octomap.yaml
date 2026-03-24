@@ -1,0 +1,26 @@
+octomap_server:
+  ros__parameters:
+    # CRITICAL: must match FastLIO's actual world frame.
+    # Run: ros2 topic echo --once /cloud_registered | grep frame_id
+    # Default FastLIO frame is camera_init — change here if yours differs.
+    frame_id: map
+
+    resolution: 0.1
+
+    # QoS — FastLIO publishes BEST_EFFORT. Mismatched QoS = silent data loss.
+    # Confirm with: ros2 topic info /cloud_registered --verbose | grep Reliability
+    cloud_in_qos_reliability: best_effort
+    cloud_in_qos_durability:  volatile
+
+    # Sensor model. sensor_model/miss controls how fast people clear.
+    # 0.45 = ~8 scans to clear a stationary person (good indoor default).
+    # Raise to 0.47 if people still linger; back off if walls flicker.
+    sensor_model/hit:       0.70
+    sensor_model/miss:      0.43
+    sensor_model/min:       0.12
+    sensor_model/max:       0.97
+    sensor_model/max_range: 20.0
+
+    publish_free_space: false
+    latch:              false
+    filter_ground:      false

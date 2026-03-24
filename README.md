@@ -41,16 +41,20 @@ Livox MID360 sensor.
 
 ## What's New in This Fork
 
-| Feature | Description |
-|---------|-------------|
-| **Global Localization** | Hint-free pose initialization via NDT grid search + coarse ICP, followed by continuous ICP tracking against a pre-saved PCD map |
-| **Warm-Start Persistence** | Last known pose is saved to disk and reloaded on restart, enabling fast recovery when the robot has not moved between sessions |
+The upstream [liangheming/FASTLIO2_ROS2](https://github.com/liangheming/FASTLIO2_ROS2) already provides
+LiDAR-inertial odometry (`fastlio2`), global localization with NDT+ICP (`localizer`),
+pose-graph optimization (`pgo`), hierarchical bundle adjustment (`hba`), and the service
+interface definitions (`interface`).
+
+This fork adds the following on top:
+
+| Addition | Description |
+|----------|-------------|
 | **DBSCAN People Filter** | Real-time two-stage pipeline that removes human-shaped clusters from the live point cloud before it reaches the localizer, improving map-matching stability in crowded environments |
 | **PCD Map Cleaner** | Offline CLI tool (`filter_map_pcd.py`) that applies the same geometry classifier to a saved PCD file, producing a people-free map for localization |
 | **Semantic Segmentation** | RandLA-Net node that labels each incoming scan with SemanticKITTI classes (person, vehicle, ground, vegetation, …) and republishes per-class clouds for downstream use |
-| **Launch Orchestration** | Modular launch files covering every combination of driver/no-driver, mapping/localization, with/without filter and RViz |
-| **PyQt5 GUI** | Dark-themed control panel for launching stacks, triggering services, and monitoring output — no terminal required |
-| **Custom Service Interfaces** | `SaveMaps`, `GlobalRelocalize`, `IsValid`, `StartMapping`, `StopMapping` service definitions |
+| **Launch Orchestration** | Modular launch files covering every combination of live/rosbag, mapping/localization, with/without people filter and RViz |
+| **PyQt5 GUI** | Dark-themed control panel for launching stacks, toggling the Livox driver, triggering services, and monitoring output — no terminal required |
 
 ---
 
@@ -115,8 +119,10 @@ map
 | Package | Language | Role |
 |---------|----------|------|
 | `fastlio2` | C++ | LiDAR-inertial odometry — IESKF + ikd-Tree SLAM core |
-| `localizer` | C++ | Global localization + continuous ICP tracking against a PCD map |
-| `interface` | CMake | Custom ROS2 service/message definitions |
+| `localizer` | C++ | Global localization (NDT+ICP) + continuous ICP tracking against a PCD map |
+| `interface` | CMake | ROS2 service/message definitions |
+| `pgo` | C++ | Pose-graph optimization |
+| `hba` | C++ | Hierarchical bundle adjustment for map refinement |
 
 ### Added in This Fork
 

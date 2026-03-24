@@ -48,11 +48,46 @@ interface definitions (`interface`).
 
 This fork adds the following on top:
 
+### Algorithmic Contributions
+
+**Adaptive DBSCAN People Filter** (`lidar_people_filter`)
+
+A real-time human removal pipeline designed specifically for Livox MID360 point clouds
+in indoor environments:
+
+- **Range-adaptive ε** — DBSCAN neighbourhood radius scales with median scan range
+  (1.2–1.5× multiplier beyond 3 m), compensating for the sensor's range-dependent
+  point density so far-range humans cluster as reliably as close-range ones.
+- **Voxel pre-downsampling** — normalises density before clustering so the geometry
+  classifier sees consistent cluster shapes regardless of range or scan overlap.
+- **Temporal consistency tracker** (`RepeatedHumanTracker`) — a sliding-window
+  voxel-hit accumulator that tracks classified clusters over a configurable frame window
+  (default 12 frames). Voxels present in ≥ 70% of frames are flagged as static
+  structures and kept; voxels that appear/disappear are removed as dynamic people.
+  This catches stationary people that geometry alone cannot distinguish from furniture.
+- **Multi-criterion geometry classifier** — height, footprint diameter, aspect ratio,
+  point count, and an explicit single-axis width guard to prevent wall segments from
+  being misclassified as humans.
+- **Offline map cleaner** (`filter_map_pcd.py`) — applies the same classifier to a
+  saved PCD file, with a spatial remapping step that recovers full-resolution points
+  from the downsampled clustering result.
+
+**RandLA-Net Semantic Segmentation** (`lidar_semantic`)
+
+Integration of RandLA-Net (CVPR 2020) for per-scan SemanticKITTI labelling:
+
+- Decoupled inference via a background worker thread — the ROS subscriber only
+  updates a pending-message slot; the worker drains it asynchronously, keeping
+  the ROS graph responsive under GPU load.
+- Multi-scale KNN graph and random downsampling indices are precomputed in NumPy
+  before each forward pass, avoiding redundant GPU↔CPU transfers.
+- Class-conditional output streams: person cloud, ground cloud, and a full labelled
+  cloud are published separately for downstream consumption.
+
+### Infrastructure Contributions
+
 | Addition | Description |
 |----------|-------------|
-| **DBSCAN People Filter** | Real-time two-stage pipeline that removes human-shaped clusters from the live point cloud before it reaches the localizer, improving map-matching stability in crowded environments |
-| **PCD Map Cleaner** | Offline CLI tool (`filter_map_pcd.py`) that applies the same geometry classifier to a saved PCD file, producing a people-free map for localization |
-| **Semantic Segmentation** | RandLA-Net node that labels each incoming scan with SemanticKITTI classes (person, vehicle, ground, vegetation, …) and republishes per-class clouds for downstream use |
 | **Launch Orchestration** | Modular launch files covering every combination of live/rosbag, mapping/localization, with/without people filter and RViz |
 | **PyQt5 GUI** | Dark-themed control panel for launching stacks, toggling the Livox driver, triggering services, and monitoring output — no terminal required |
 

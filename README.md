@@ -68,8 +68,8 @@ This fork adds the following on top:
                 │ /livox/lidar  /livox/imu
                 ▼
 ┌──────────────────────────────────────────┐
-│          FASTLIO2  LIO Node  (C++)        │
-│  IESKF  ·  ikd-Tree  ·  IMU Integrator  │
+│          FASTLIO2  LIO Node  (C++)       │
+│  IESKF  ·  ikd-Tree  ·  IMU Integrator   │
 │                                          │
 │  /fastlio2/body_cloud   (body frame)     │
 │  /fastlio2/world_cloud  (world frame)    │

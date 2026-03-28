@@ -12,10 +12,9 @@ Livox MID360 sensor.
 
 ## Demo
 
-<!-- Replace the link below with your YouTube / unlisted video URL -->
 [![Demo Video](https://img.shields.io/badge/Watch%20Demo-YouTube-red?style=for-the-badge&logo=youtube)](https://youtu.be/Ip-UA0tPhvY)
 
-> *Video coming soon — will show mapping, global re-localization, and people filtering in a live indoor environment.*
+> *This demo showcases the system's core capabilities using the GUI Control Panel, including real-time point-cloud mapping, automatic global re-localization recovering from tracking failures (via global search), and the ability to seamlessly update and merge an existing map while exploring new areas.*
 
 ---
 

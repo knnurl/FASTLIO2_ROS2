@@ -12,7 +12,12 @@ Livox MID360 sensor.
 
 ## Demo
 
-[![Demo Video](https://img.shields.io/badge/Watch%20Demo-YouTube-red?style=for-the-badge&logo=youtube)](https://youtu.be/Ip-UA0tPhvY)
+<div align="center">
+  <a href="https://youtu.be/Ip-UA0tPhvY">
+    <img src="https://i.ytimg.com/vi/Ip-UA0tPhvY/maxresdefault.jpg" width="800" alt="FASTLIO2 Demo Video">
+  </a>
+</div>
+<br>
 
 > *This demo showcases the system's core capabilities using the GUI Control Panel, including real-time point-cloud mapping, automatic global re-localization recovering from tracking failures (via global search), and the ability to seamlessly update and merge an existing map while exploring new areas.*
 

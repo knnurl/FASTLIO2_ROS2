@@ -1,0 +1,59 @@
+dbscan_filter_node:
+  ros__parameters:
+
+    input_topic:   /fastlio2/body_cloud
+    output_topic:  /cloud_filtered
+
+    # 3 frames @ 10Hz = 0.3s window — more returns per person at range
+    # vs 2 frames. Drop back to 2 if latency becomes noticeable.
+    accumulate_frames: 3
+
+    # ── voxel downsample ──────────────────────────────────────────────────
+    # Applied BEFORE DBSCAN. Normalises Mid360's range-dependent density.
+    # 0.10m = slightly finer than before — preserves more vertical extent
+    # for far-range partial-body returns (key for height check).
+    # Raise to 0.12 if false positives return.
+    voxel_size: 0.10
+
+    # ── DBSCAN ────────────────────────────────────────────────────────────
+    # eps: neighbourhood radius on DOWNSAMPLED cloud.
+    # 0.40 = allows ~3-voxel gaps — needed for sparse returns at 3m+.
+    # The node also scales this up further for clouds whose median range
+    # exceeds 3m / 6m (x1.2 / x1.5).
+    # Lower to 0.30 if walls/furniture start merging into human clusters.
+    dbscan_eps: 0.40
+
+    # Low base min_samples — geometry checks are the real discriminator.
+    # Raise to 5 if isolated noise points cause false positives.
+    dbscan_min_samples: 3
+
+    # ── human geometry ────────────────────────────────────────────────────
+    # These operate on the DOWNSAMPLED cluster, so point counts are lower.
+    # At far range (3m+) Mid360 returns only partial body (torso/shoulders),
+    # so height and aspect are relaxed relative to close-range values.
+    human_min_height:     0.8    # was 1.2 — partial-body returns at range
+    human_max_height:     2.2
+    human_min_footprint:  0.1
+    human_max_footprint:  1.0
+    # Wall-merge guard: if any single horizontal axis > this, it's structure.
+    human_max_single_axis: 1.1
+    human_min_pts:   3      # fewer voxels expected from sparse far returns
+    human_max_pts:   250
+    human_min_aspect: 1.2   # was 1.5 — partial torso is less tall relative to width
+
+    # ── z strip (world frame) ─────────────────────────────────────────────
+    ground_z_min: -1.5
+    ground_z_max:  3.5
+
+    # ── temporal consistency (stationary people) ──────────────────────────
+    # Catches people DBSCAN geometry misses because they look like structure.
+    # A voxel seen in < static_thresh fraction of window scans is DYNAMIC.
+    # The tracker needs temporal_window scans to warm up before removing.
+    temporal_enable:       true
+    temporal_voxel_size:   0.20   # coarser than DBSCAN voxel
+    temporal_window:       12     # ~5 seconds at 2.5Hz filter output
+    # 0.70 = voxel must be human-classified in 70%+ of last 12 scans
+    # to be confirmed as a stationary person and removed.
+    # Raise toward 0.85 if moving people get stuck in the remove set.
+    # Lower toward 0.55 if slow-movers persist after the window warms up.
+    temporal_static_thresh: 0.70

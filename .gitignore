@@ -1,0 +1,10 @@
+build/
+install/
+log/
+*.pyc
+__pycache__/
+*.egg-info/
+.eggs/
+weights/*.tar
+weights/*.pth
+weights/*.pt

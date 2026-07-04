@@ -1,0 +1,67 @@
+# config/people_filter.yaml
+# ─────────────────────────────────────────────────────────
+# Default parameters for the LiDAR people filter package.
+# Tune these to match your LiDAR sensor and environment.
+# ─────────────────────────────────────────────────────────
+
+people_filter_node:
+  ros__parameters:
+
+    # ── Topics ───────────────────────────────────────────
+    input_topic:  /spot/velodyne_points     # raw LiDAR cloud
+    output_topic: /points_no_people    # filtered cloud
+    marker_topic: /people_detections   # RViz bounding boxes
+    publish_markers: true
+
+    # ── Voxel Downsampling ───────────────────────────────
+    # Reduce point density before clustering.
+    # Smaller = more detail but slower. Typical: 0.05–0.10 m
+    voxel_size: 0.03
+
+    # ── Ground Removal (RANSAC) ──────────────────────────
+    # distance_thresh: inlier tolerance for plane fit (m)
+    # max_iterations:  RANSAC budget (more = more accurate)
+    ground_distance_thresh: 0.1 ## was 0.15
+    ground_max_iterations: 100
+
+    # ── Euclidean / DBSCAN Clustering ────────────────────
+    # cluster_tolerance: maximum distance between points in one cluster (m)
+    # Set use_dbscan: false to use simple Euclidean clustering (no sklearn needed)
+    cluster_tolerance: 0.50
+    cluster_min_points: 15
+    cluster_max_points: 2500
+    use_dbscan: true
+
+    # ── Human Geometry Thresholds ────────────────────────
+    # Height: standing adult range (m)
+    human_min_height: 1.50
+    human_max_height: 2.0
+
+    # Width and depth: shoulder width / body depth (m)
+    human_min_width: 0.20
+    human_max_width: 1.20
+    human_min_depth: 0.20
+    human_max_depth: 1.0
+
+    # Point count per cluster
+    human_min_points: 25
+    human_max_points: 2000
+
+    # Horizontal aspect (width/depth): people ≈ circular → < 4
+    human_max_horizontal_aspect: 4.0
+    # Vertical aspect (width/height): people are tall → < 1.5
+    human_max_vertical_aspect: 1.5
+
+    # ── Removal Inflation ────────────────────────────────
+    # Extra margin added to each side of the human bounding box (m)
+    removal_inflation: 0.20
+
+
+background_subtractor_node:
+  ros__parameters:
+    input_topic:  /points_no_people
+    output_topic: /points_static
+    voxel_size: 0.1
+    calibration_frames: 50
+    min_bg_hits: 5
+    auto_calibrate: false

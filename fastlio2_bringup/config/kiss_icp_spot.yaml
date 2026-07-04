@@ -1,0 +1,27 @@
+# kiss_icp_spot.yaml — KISS-ICP parameters for Boston Dynamics Spot + Velodyne VLP-16
+#
+# Used by the Spot mapping/localization launch files.
+# publish_debug_clouds is set in the launch file (true for mapping, true for localization
+# so the localizer can subscribe to /kiss/local_map for map-update accumulation).
+
+kiss_icp_node:
+  ros__parameters:
+    data:
+      deskew: false          # VLP-16 has a "time" field — set true to enable motion
+                             # deskewing, but test carefully: Spot's body motion can
+                             # cause the intra-scan timestamps to be non-monotonic.
+      min_range: 0.5         # ignore returns closer than 0.5 m (leg/body hits)
+      max_range: 30.0        # VLP-16 reliable range indoors
+
+    mapping:
+      voxel_size: 0.3        # 0.3 m voxels — good balance for indoor corridors
+      max_points_per_voxel: 20
+
+    adaptive_threshold:
+      initial_threshold: 2.0
+      min_motion_th: 0.1
+
+    registration:
+      max_num_iterations: 500
+      convergence_criterion: 0.0001
+      max_num_threads: 0     # 0 = use all available cores

@@ -11,8 +11,6 @@
   <maintainer email="ses634@example.com">ses634</maintainer>
   <license>Apache-2.0</license>
 
-  <buildtool_depend>ament_cmake_python</buildtool_depend>
-
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>visualization_msgs</depend>

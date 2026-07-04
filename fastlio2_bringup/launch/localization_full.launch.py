@@ -35,7 +35,9 @@ from launch_ros.substitutions import FindPackageShare
 
 POSE_SAVE_PATH = "/tmp/fastlio2_last_pose.yaml"
 
-LIVOX_WS = "/home/local/ISDADS/ses634/livox_ws/install"
+# Override with LIVOX_WS_INSTALL if the driver workspace lives elsewhere.
+LIVOX_WS = os.environ.get(
+    "LIVOX_WS_INSTALL", os.path.expanduser("~/livox_ws/install"))
 DEFAULT_LIVOX_CONFIG = os.path.join(
     LIVOX_WS, "livox_ros_driver2", "share",
     "livox_ros_driver2", "config", "MID360_config.json"
@@ -59,7 +61,7 @@ def generate_launch_description():
     declared_args = [
         DeclareLaunchArgument(
             "map_path",
-            default_value="/home/local/ISDADS/ses634/fastlio2_ws/maps/map.pcd",
+            default_value=os.path.expanduser("~/fastlio2_ws/maps/map.pcd"),
             description="Absolute path to pre-saved PCD map file",
         ),
         DeclareLaunchArgument(

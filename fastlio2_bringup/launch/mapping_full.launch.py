@@ -27,7 +27,9 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 
-LIVOX_WS = "/home/local/ISDADS/ses634/livox_ws/install"
+# Override with LIVOX_WS_INSTALL if the driver workspace lives elsewhere.
+LIVOX_WS = os.environ.get(
+    "LIVOX_WS_INSTALL", os.path.expanduser("~/livox_ws/install"))
 DEFAULT_LIVOX_CONFIG = os.path.join(
     LIVOX_WS, "livox_ros_driver2", "share",
     "livox_ros_driver2", "config", "MID360_config.json"

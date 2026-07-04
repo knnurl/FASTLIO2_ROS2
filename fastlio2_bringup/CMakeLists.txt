@@ -5,6 +5,10 @@ find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY config  DESTINATION share/${PROJECT_NAME})
-install(PROGRAMS scripts/fastlio2_gui.py DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS
+  scripts/fastlio2_gui.py
+  scripts/spot_gui.py
+  scripts/kiss_map_saver.py
+  DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

@@ -25,6 +25,7 @@ To manually trigger global re-localization at any time:
   ros2 service call /localizer/global_relocalize interface/srv/GlobalRelocalize \
       "{pcd_path: '', force: true}"
 """
+import os
 import launch
 import launch_ros.actions
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
@@ -46,7 +47,7 @@ def generate_launch_description():
     declared_args = [
         DeclareLaunchArgument(
             "map_path",
-            default_value="/home/local/ISDADS/ses634/fastlio2_ws/maps/map.pcd",
+            default_value=os.path.expanduser("~/fastlio2_ws/maps/map.pcd"),
             description="Absolute path to pre-saved PCD map file",
         ),
         DeclareLaunchArgument(

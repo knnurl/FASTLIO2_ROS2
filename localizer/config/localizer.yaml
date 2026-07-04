@@ -1,15 +1,75 @@
+# Change to /fastlio2/body_cloud_filtered to always use the people filter
+# (requires people_filter_node running — see localization*.launch.py use_people_filter arg)
 cloud_topic: /fastlio2/body_cloud
+# world_cloud is the LIO full-resolution scan in lidar/world frame — used for
+# map-update accumulation so new areas are saved at the same quality as a
+# pure-mapping session. body_cloud (above) is still used for ICP localization.
+world_cloud_topic: /fastlio2/world_cloud
 odom_topic: /fastlio2/lio_odom
 map_frame: map
 local_frame: lidar
-update_hz: 1.0
+update_hz: 2.0
 
+# ICP localization parameters (used for refine/tracking stage)
 rough_scan_resolution: 0.25
 rough_map_resolution: 0.25
-rough_max_iteration: 5
-rough_score_thresh: 0.2
+rough_max_iteration: 30
+rough_score_thresh: 0.5
+rough_max_corr_dist: 1.0
+# Rough fitness above this (but below rough_score_thresh) is "marginal" — refine
+# stage will use a wider correspondence distance to avoid diverging.
+# Set equal to rough_score_thresh to disable.
+rough_confidence_thresh: 0.25
 
 refine_scan_resolution: 0.1
 refine_map_resolution: 0.1
-refine_max_iteration: 10
-refine_score_thresh: 0.1
+refine_max_iteration: 50
+refine_score_thresh: 0.3
+refine_max_corr_dist: 1.5
+
+# When consecutive ICP failures reach half of lost_patience, correspondence
+# distances are multiplied by this factor as a recovery attempt before
+# triggering a full global search.
+icp_recovery_corr_scale: 1.5
+
+# ── Global relocalization (set localizer_mode: global to enable) ──────────────
+# localizer_mode: icp      # "icp" = manual pose hint required
+# localizer_mode: global   # "global" = auto-localizes on startup
+
+localizer_mode: global
+
+# Path to the pre-saved PCD map file (used in global mode)
+# Set this to your map file path before running in global/localization mode
+map_path: /home/local/ISDADS/ses634/fastlio2_ws/maps/map.pcd
+
+# ICP failure patience before re-triggering global search
+# max_failures = lost_patience_sec * update_hz (e.g. 5.0 * 2.0 = 10 consecutive failures)
+lost_thresh: 1.5
+lost_patience_sec: 5.0
+
+# Global search grid parameters
+global_xy_step_m: 2.0         # XY search grid step (meters)
+global_yaw_step_deg: 30.0     # Yaw search step (degrees)
+global_ndt_resolution: 1.0    # NDT voxel size for coarse scoring
+global_top_k: 5               # Top-K candidates to refine with ICP
+global_ndt_score_thresh: 5.0   # Reject NDT candidates with score > this before ICP (0 = disabled)
+global_icp_fitness_thresh: 0.5 # Accept result if ICP fitness < this
+global_icp_max_corr_dist: 1.5  # ICP max correspondence distance
+global_scan_voxel_coarse: 0.4  # Scan downsample for NDT scoring
+global_map_voxel: 0.25         # Map downsample leaf size
+
+# Prior-pose fast ICP (used on re-launch with saved pose)
+global_prior_icp_max_corr_dist: 3.0    # Wider window — prior may be slightly off
+global_prior_icp_fitness_thresh: 0.4   # Accept prior ICP if fitness < this
+
+# Pose persistence — survives across launches so re-launch skips global search
+pose_save_path: /tmp/fastlio2_last_pose.yaml
+pose_save_hz: 0.5   # Save frequency while tracking (Hz)
+
+# Minimum points in body cloud to attempt ICP (guards against "NO Effective Points" from lio)
+min_cloud_points: 50
+
+# ICP result sanity check: if the result moves more than this from the predicted
+# pose, it is rejected as a wrong local minimum.  At 2 Hz ICP with good LIO
+# odometry the correction should be <0.15 m; 1.0 m is a safe upper bound.
+icp_max_jump_m: 1.0

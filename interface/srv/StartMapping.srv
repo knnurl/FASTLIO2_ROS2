@@ -1,0 +1,5 @@
+string output_path      # path to save the PCD when stop_mapping is called
+float32 voxel_size      # accumulation voxel filter leaf size in meters (0 = no filter, default 0.1)
+---
+bool success
+string message

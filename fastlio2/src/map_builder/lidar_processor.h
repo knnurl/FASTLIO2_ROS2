@@ -31,6 +31,12 @@ public:
     M3D r_wl() { return m_kf->x().r_wi * m_kf->x().r_il; }
     V3D t_wl() { return m_kf->x().t_wi + m_kf->x().r_wi * m_kf->x().t_il; }
 
+    void getMapPoints(PointVec &points)
+    {
+        if (m_ikdtree && m_ikdtree->Root_Node != nullptr)
+            m_ikdtree->flatten(m_ikdtree->Root_Node, points, NOT_RECORD);
+    }
+
 private:
     Config m_config;
     LocalMap m_local_map;

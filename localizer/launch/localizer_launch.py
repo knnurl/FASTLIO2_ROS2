@@ -1,7 +1,11 @@
 import launch
 import launch_ros.actions
-from launch.substitutions import PathJoinSubstitution
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
+
+POSE_SAVE_PATH = "/tmp/fastlio2_last_pose.yaml"
 
 
 def generate_launch_description():
@@ -11,12 +15,28 @@ def generate_launch_description():
     localizer_config_path = PathJoinSubstitution(
         [FindPackageShare("localizer"), "config", "localizer.yaml"]
     )
-
     lio_config_path = PathJoinSubstitution(
         [FindPackageShare("fastlio2"), "config", "lio.yaml"]
     )
+
+    declared_args = [
+        DeclareLaunchArgument(
+            "force_global_search",
+            default_value="true",
+            description="Delete saved pose on startup to force full global search "
+                        "(set false to use warm-start from last saved pose)",
+        ),
+    ]
+
+    clear_saved_pose = ExecuteProcess(
+        cmd=["rm", "-f", POSE_SAVE_PATH],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("force_global_search")),
+    )
+
     return launch.LaunchDescription(
-        [
+        declared_args + [
+            clear_saved_pose,
             launch_ros.actions.Node(
                 package="fastlio2",
                 namespace="fastlio2",
@@ -48,6 +68,6 @@ def generate_launch_description():
                 name="rviz2",
                 output="screen",
                 arguments=["-d", rviz_cfg.perform(launch.LaunchContext())],
-            )
+            ),
         ]
     )

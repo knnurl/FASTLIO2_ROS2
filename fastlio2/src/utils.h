@@ -25,5 +25,10 @@ public:
     // static sensor_msgs::msg::PointCloud2 convertToROS(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud);
     static double getSec(std_msgs::msg::Header &header);
     static pcl::PointCloud<pcl::PointXYZINormal>::Ptr livox2PCL(const livox_ros_driver2::msg::CustomMsg::SharedPtr msg, int filter_num, double min_range = 0.5, double max_range = 20.0);
+    // Convert a standard PointCloud2 (Velodyne/Ouster/Hesai) to the internal point
+    // type. Reads x/y/z/intensity (datatype-aware) and the per-point time field —
+    // "time"/"time_stamp" (float s), "t" (uint32 ns), or "timestamp" (double abs s)
+    // — and stores it in curvature (ms), matching the livox2PCL convention.
+    static pcl::PointCloud<pcl::PointXYZINormal>::Ptr pc2ToPCL(const sensor_msgs::msg::PointCloud2::SharedPtr msg, int filter_num, double min_range = 0.5, double max_range = 100.0);
     static builtin_interfaces::msg::Time getTime(const double& sec);
 };

@@ -1,0 +1,66 @@
+# localizer_spot.yaml — Localizer config for Spot + KISS-ICP (no IMU)
+#
+# KISS-ICP replaces fastlio2's LIO node.
+# Topic wiring:
+#   cloud_topic       → /spot/velodyne/points  (raw VLP-16 scan, or filtered)
+#   odom_topic        → /kiss/odometry         (KISS-ICP cumulative odometry)
+#   world_cloud_topic → /kiss/local_map        (KISS-ICP voxel map, needs
+#                                               publish_debug_clouds: true)
+#
+# local_frame is overridden at runtime from odom_msg->header.frame_id
+# which will be "odom_lidar" (KISS-ICP's lidar_odom_frame).
+# The localizer then broadcasts:  map → odom_lidar
+# KISS-ICP broadcasts:            odom_lidar → <velodyne_frame>
+# Result chain:                   map → odom_lidar → <velodyne_frame>
+
+cloud_topic: /spot/velodyne/points
+odom_topic: /kiss/odometry
+world_cloud_topic: /kiss/local_map
+map_frame: map
+local_frame: odom_lidar   # overridden at runtime — just a safe default
+update_hz: 2.0
+
+# ── Rough ICP (coarse registration) ──────────────────────────────────────────
+# VLP-16 is sparser than Livox MID360 — slightly relaxed correspondence distance
+rough_scan_resolution: 0.25
+rough_map_resolution:  0.25
+rough_max_iteration:   30
+rough_score_thresh:    0.5
+rough_max_corr_dist:   1.5      # +0.5 m vs Livox default — compensates for VLP-16 sparsity
+rough_confidence_thresh: 0.25
+
+# ── Refine ICP (fine registration) ───────────────────────────────────────────
+refine_scan_resolution: 0.1
+refine_map_resolution:  0.1
+refine_max_iteration:   50
+refine_score_thresh:    0.3
+refine_max_corr_dist:   1.5
+
+icp_recovery_corr_scale: 1.5
+
+# ── Global localization (NDT grid search + ICP) ───────────────────────────────
+localizer_mode: global
+map_path: /home/local/ISDADS/ses634/fastlio2_ws/maps/map_spot.pcd
+
+lost_thresh:       1.5
+lost_patience_sec: 5.0
+
+global_xy_step_m:          2.0
+global_yaw_step_deg:       30.0
+global_ndt_resolution:     1.0
+global_top_k:              5
+global_ndt_score_thresh:   5.0
+global_icp_fitness_thresh: 0.5
+global_icp_max_corr_dist:  1.5
+global_scan_voxel_coarse:  0.4
+global_map_voxel:          0.25
+global_prior_icp_max_corr_dist:  3.0
+global_prior_icp_fitness_thresh: 0.4
+
+# ── Pose persistence ──────────────────────────────────────────────────────────
+pose_save_path: /tmp/spot_last_pose.yaml   # separate file from fastlio2 to avoid conflicts
+pose_save_hz:   0.5
+
+# ── Safety ───────────────────────────────────────────────────────────────────
+min_cloud_points: 50
+icp_max_jump_m:   1.0

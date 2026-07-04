@@ -57,8 +57,8 @@ This fork adds the following on top:
 **Extended Localizer** (modifications to `localizer/`)
 
 The upstream localizer supported manual ICP-only localization (pose hint required).
-The following were added on top — the original ICP path is explicitly left unchanged
-(`// ICP mode (original logic, unchanged)` comment in `localizer_node.cpp`):
+The following were added on top — the original manual-hint ICP mode is preserved as
+`localizer_mode: icp`:
 
 - **Global mode state machine** — a four-state FSM (IDLE → SEARCHING → TRACKING → LOST)
   that drives the full localization lifecycle without any user-provided pose hint.
@@ -80,13 +80,45 @@ The following were added on top — the original ICP path is explicitly left unc
   instead of entering an IDLE→SEARCH→FAIL spin that would corrupt the position estimate.
 - **Degenerate scan guard** — scans below `min_cloud_points` are skipped entirely,
   preventing wasted ICP computation on empty or nearly-empty returns.
-- **Hot-reload of merged map** — after `stop_mapping` saves a merged PCD, the node
-  reloads it into both the ICP and global localizers on the next timer tick without
-  requiring a restart.
+- **Hot-reload of merged map** — after `stop_mapping` saves a merged PCD, both the ICP
+  and global localizers are reloaded on the service thread without a restart; ICP
+  tracking continues against the new map.
 - **Two-stage adaptive ICP** (`icp_localizer.cpp`) — rough and refine stages use separate
   voxel resolutions; if the rough fitness is marginal, the refine correspondence distance
   is automatically widened via `recovery_corr_scale` to avoid divergence from a
   slightly-off starting point.
+
+**Multi-LiDAR Input** (modifications to `fastlio2/`)
+
+The upstream LIO node accepted Livox `CustomMsg` only. This fork adds:
+
+- **`lidar_type: 1`** — standard `sensor_msgs/PointCloud2` input (Velodyne, Ouster,
+  Hesai, …) with datatype-checked field parsing. Per-point deskew time is decoded from
+  whichever convention the driver uses: Velodyne `time` (float s), Ouster `t`
+  (uint32 ns), or Hesai `timestamp` (double absolute s).
+- **`acc_scale`** — configurable IMU acceleration multiplier (Livox IMUs report g;
+  standard IMUs report m/s²), so non-Livox IMUs initialize correctly.
+- Reference configs for a Boston Dynamics Spot + Velodyne VLP-16 setup
+  (`fastlio2/config/lio_spot.yaml`, `localizer/config/localizer_spot.yaml`) and
+  KISS-ICP-based IMU-free mapping launches for the same platform.
+
+**Robustness & Concurrency Overhaul** (both C++ nodes)
+
+- Both nodes run a **`MultiThreadedExecutor`** with heavy services (`save_map`,
+  `relocalize`, `global_relocalize`, `stop_mapping`) in a dedicated callback group —
+  a multi-second global search or compressed PCD write no longer stalls odometry or
+  the `map → lidar` TF.
+- All shared state is consistently locked; the non-thread-safe PCL NDT/ICP objects are
+  serialized behind a single localizer mutex that the tracking timer only *try-locks*,
+  so TF broadcasting continues from the last offset while a search or map reload runs.
+- A **generation counter** invalidates an in-flight async search when a forced service
+  relocalization supersedes it; the async search is exception-safe.
+- **Fail-fast configuration** — missing/invalid YAML keys abort startup with a fatal
+  log naming the exact key, instead of an unhandled exception.
+- Empty-scan and degenerate-input guards, sensor-data QoS on IMU/LiDAR subscriptions,
+  bounded trajectory history, and sim-time-aware clocks throughout the localizer.
+- A **`/localizer/localizer_status`** heartbeat topic
+  (`mode=… state=… dead_reckoning=… mapping=… searching=…`) for GUIs and monitoring.
 
 **Adaptive DBSCAN People Filter** (`lidar_people_filter`)
 
@@ -163,7 +195,7 @@ Integration of RandLA-Net (CVPR 2020) for per-scan SemanticKITTI labelling:
        │          │   ICP Localizer (C++)  │
        │          │   NDT global search    │
        │          │   → continuous ICP     │
-       │          │   → TF: map→base_link  │
+       │          │   → TF: map→lidar      │
        │          └────────────────────────┘
        │
   /fastlio2/save_map ──▶ map.pcd
@@ -179,23 +211,26 @@ Integration of RandLA-Net (CVPR 2020) for per-scan SemanticKITTI labelling:
 
 ```
 map
- └── camera_init  (published by localizer when tracking)
-      └── body    (published by LIO node)
+ └── lidar   (LIO world frame — map→lidar published by the localizer)
+      └── body    (published by the LIO node)
 ```
+
+Frame names come from the configs (`world_frame`/`body_frame` in `lio.yaml`,
+`map_frame`/`local_frame` in `localizer.yaml`).
 
 ---
 
 ## Package Overview
 
-### Upstream (unchanged)
+### Core (from upstream, extended in this fork)
 
 | Package | Language | Role |
 |---------|----------|------|
-| `fastlio2` | C++ | LiDAR-inertial odometry — IESKF + ikd-Tree SLAM core |
-| `localizer` | C++ | Global localization (NDT+ICP) + continuous ICP tracking against a PCD map |
-| `interface` | CMake | ROS2 service/message definitions |
-| `pgo` | C++ | Pose-graph optimization |
-| `hba` | C++ | Hierarchical bundle adjustment for map refinement |
+| `fastlio2` | C++ | LiDAR-inertial odometry — IESKF + ikd-Tree SLAM core (+ PointCloud2 input, robustness fixes) |
+| `localizer` | C++ | Global localization (NDT+ICP) + continuous ICP tracking against a PCD map (+ global mode, map update, concurrency fixes) |
+| `interface` | CMake | ROS2 service/message definitions (+ GlobalRelocalize, StartMapping, StopMapping) |
+| `pgo` | C++ | Pose-graph optimization (unchanged) |
+| `hba` | C++ | Hierarchical bundle adjustment for map refinement (build fix only) |
 
 ### Added in This Fork
 
@@ -210,10 +245,14 @@ map
 ## Prerequisites
 
 - **ROS2** Humble or later
+- **C++ libraries** — PCL, Eigen3, Sophus, yaml-cpp (all resolvable via `rosdep`);
+  **GTSAM** for the `pgo` loop-closure package (`libgtsam-dev` from the
+  [GTSAM PPA](https://gtsam.org/get_started/), or build from source)
 - **Livox ROS Driver 2** — built in a separate workspace (e.g. `~/livox_ws`)
 - **Python ≥ 3.8** with `PyQt5`, `numpy`, `open3d`, `scikit-learn`
 - **PyTorch ≥ 1.12** with CUDA (for `lidar_semantic` — CPU fallback available)
-- A **Livox MID360** or compatible sensor (for live data mode)
+- A **Livox MID360** or compatible sensor (for live data mode); Velodyne/standard
+  PointCloud2 sensors supported via `lidar_type: 1`
 
 ```bash
 pip install PyQt5 numpy open3d scikit-learn torch torchvision
@@ -231,12 +270,16 @@ source ~/livox_ws/install/setup.bash
 cd ~/ros2_ws/src
 git clone https://github.com/knnurl/FASTLIO2_ROS2.git
 
-# 3. Build
+# 3. Resolve system dependencies (PCL, Eigen, Sophus, yaml-cpp, ...)
 cd ~/ros2_ws
+rosdep install --from-paths src --ignore-src -r -y
+
+# 4. Build
 colcon build --symlink-install --packages-select \
     interface fastlio2 localizer fastlio2_bringup lidar_people_filter lidar_semantic
+# (add pgo hba if you have GTSAM installed)
 
-# 4. Source the workspace
+# 5. Source the workspace
 source install/setup.bash
 ```
 
@@ -310,7 +353,7 @@ Key arguments:
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `map_path` | `maps/map.pcd` | Path to pre-saved PCD map |
+| `map_path` | `~/fastlio2_ws/maps/map.pcd` | Path to pre-saved PCD map |
 | `use_people_filter` | `true` | Enable real-time DBSCAN filter |
 | `force_global_search` | `true` | Ignore saved pose; always run full NDT+ICP search |
 | `launch_rviz` | `true` | Start RViz2 (set `false` when using the GUI) |
@@ -374,6 +417,8 @@ Published topics:
 | `/fastlio2/accumulated_map` | `sensor_msgs/PointCloud2` | fastlio2 | Periodically downsampled map cloud |
 | `/fastlio2/body_cloud_filtered` | `sensor_msgs/PointCloud2` | people_filter | People-removed body cloud |
 | `/localizer/map_cloud` | `sensor_msgs/PointCloud2` | localizer | Pre-saved map (for RViz) |
+| `/localizer/mapping_cloud` | `sensor_msgs/PointCloud2` | localizer | Newly accumulated cloud during map update (map frame) |
+| `/localizer/localizer_status` | `std_msgs/String` | localizer | 1 Hz heartbeat: `mode=… state=… dead_reckoning=… mapping=… searching=…` |
 
 ### Services
 
@@ -381,9 +426,10 @@ Published topics:
 |---------|-----------|-------------|
 | `/fastlio2/save_map` | `interface/srv/SaveMaps` | Write current ikd-tree map to a PCD file |
 | `/localizer/global_relocalize` | `interface/srv/GlobalRelocalize` | Trigger NDT+ICP global search; returns pose + fitness score |
-| `/localizer/is_valid` | `interface/srv/IsValid` | Query whether the localizer is tracking confidently |
+| `/localizer/relocalize` | `interface/srv/Relocalize` | Manual relocalization with an explicit pose hint (ICP mode) |
+| `/localizer/relocalize_check` | `interface/srv/IsValid` | Query whether the localizer is tracking confidently |
 | `/localizer/start_mapping` | `interface/srv/StartMapping` | Begin auxiliary map update |
-| `/localizer/stop_mapping` | `interface/srv/StopMapping` | End map update and merge result |
+| `/localizer/stop_mapping` | `interface/srv/StopMapping` | End map update, merge with the loaded map, save, and hot-reload |
 
 ---
 
@@ -391,11 +437,22 @@ Published topics:
 
 ### `fastlio2/config/lio.yaml`
 
-Core LIO parameters: feature thresholds, voxel filter sizes, ikd-tree parameters, and IMU noise values. Adjust `filter_size_surf` and `filter_size_map` for the speed/density trade-off.
+Core LIO parameters: topics and frames, scan/map voxel resolutions
+(`scan_resolution`, `map_resolution`), range gating (`lidar_min_range`,
+`lidar_max_range`, `lidar_filter_num`), ikd-tree bounds (`cube_len`, `det_range`),
+IMU noise (`na`/`ng`/`nba`/`nbg`) and extrinsics (`r_il`/`t_il`). Sensor selection:
+`lidar_type` (0 = Livox CustomMsg, 1 = PointCloud2) and `acc_scale` (10.0 for
+Livox g-units, 1.0 for standard m/s² IMUs). See `lio_spot.yaml` for a
+Velodyne/Spot reference.
 
 ### `localizer/config/localizer.yaml`
 
-Global search resolution (NDT voxel size, angular sweep step) and ICP tracking thresholds (max correspondence distance, convergence tolerance, fitness score cutoff for LOST→SEARCHING transition).
+Localizer mode (`localizer_mode: global` or `icp`), map path, ICP tracking
+thresholds (rough/refine resolutions, iterations, fitness cutoffs), global search
+grid (`global_xy_step_m`, `global_yaw_step_deg`, NDT resolution, top-K), recovery
+behaviour (`lost_patience_sec`, `icp_recovery_corr_scale`, `icp_max_jump_m`) and
+pose persistence (`pose_save_path`, `pose_save_hz`). See `localizer_spot.yaml`
+for the Velodyne/Spot variant. The file is extensively commented.
 
 ### `lidar_people_filter/config/dbscan_filter.yaml`
 

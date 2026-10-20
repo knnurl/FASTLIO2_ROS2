@@ -3,6 +3,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/point.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
@@ -15,6 +16,7 @@
 #include "pgos/commons.h"
 #include "pgos/simple_pgo.h"
 #include "interface/srv/save_maps.hpp"
+#include "fastlio2_health/msg/loop_closure_event.hpp"
 #include <pcl/io/io.h>
 #include <fstream>
 #include <yaml-cpp/yaml.h>
@@ -54,6 +56,20 @@ public:
         m_sync->registerCallback(std::bind(&PGONode::syncCB, this, std::placeholders::_1, std::placeholders::_2));
         m_timer = this->create_wall_timer(50ms, std::bind(&PGONode::timerCB, this));
         m_save_map_srv = this->create_service<interface::srv::SaveMaps>("/pgo/save_maps", std::bind(&PGONode::saveMapsCB, this, std::placeholders::_1, std::placeholders::_2));
+
+        // Loop closure event publisher
+        m_loop_event_pub = this->create_publisher<fastlio2_health::msg::LoopClosureEvent>(
+            "/loop_closure/event", rclcpp::SystemDefaultsQoS());
+
+        // Degenerate suppression subscriber
+        m_degenerate_suppress_sub = this->create_subscription<std_msgs::msg::Bool>(
+            "/degenerate_guard/suppress_loop_closure", rclcpp::SystemDefaultsQoS(),
+            [this](const std_msgs::msg::Bool::SharedPtr msg) {
+                m_suppress_loop_closure = msg->data;
+                if (m_suppress_loop_closure) {
+                    RCLCPP_DEBUG(this->get_logger(), "Loop closure suppressed by degenerate guard");
+                }
+            });
     }
 
     void loadParameters()
@@ -85,7 +101,7 @@ public:
     void syncCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr &cloud_msg, const nav_msgs::msg::Odometry::ConstSharedPtr &odom_msg)
     {
 
-        std::lock_guard<std::mutex>(m_state.message_mutex);
+        std::lock_guard<std::mutex> lock(m_state.message_mutex);
         CloudWithPose cp;
         cp.pose.setTime(cloud_msg->header.stamp.sec, cloud_msg->header.stamp.nanosec);
         if (cp.pose.second < m_state.last_message_time)
@@ -195,7 +211,7 @@ public:
         CloudWithPose cp = m_state.cloud_buffer.front();
         // 清理队列
         {
-            std::lock_guard<std::mutex>(m_state.message_mutex);
+            std::lock_guard<std::mutex> lock(m_state.message_mutex);
             while (!m_state.cloud_buffer.empty())
             {
                 m_state.cloud_buffer.pop();
@@ -211,13 +227,59 @@ public:
             return;
         }
 
-        m_pgo->searchForLoopPairs();
+        // Check degenerate suppression before loop closure search
+        if (m_suppress_loop_closure) {
+            RCLCPP_DEBUG(this->get_logger(),
+                "Skipping loop closure search: degenerate scan suppression active");
+        } else {
+            auto lc_result = m_pgo->searchForLoopPairsWithResult();
+            if (lc_result.attempted) {
+                publishLoopClosureEvent(lc_result, cur_time);
+            }
+        }
 
         m_pgo->smoothAndUpdate();
 
         sendBroadCastTF(cur_time);
 
         publishLoopMarkers(cur_time);
+    }
+
+    void publishLoopClosureEvent(const LoopDetectionResult& result,
+                                  const builtin_interfaces::msg::Time& stamp)
+    {
+        auto event = fastlio2_health::msg::LoopClosureEvent();
+        event.header.stamp = stamp;
+        event.header.frame_id = m_node_config.map_frame;
+        event.node_i = result.node_i;
+        event.node_j = result.node_j;
+        event.match_score = static_cast<float>(result.match_score);
+        event.correction_magnitude_m = static_cast<float>(result.correction_magnitude_m);
+        event.accepted = result.accepted;
+
+        // Fill relative transform
+        Eigen::Quaterniond q(result.relative_r);
+        event.relative_transform.header = event.header;
+        event.relative_transform.child_frame_id = "loop_closure";
+        event.relative_transform.transform.translation.x = result.relative_t.x();
+        event.relative_transform.transform.translation.y = result.relative_t.y();
+        event.relative_transform.transform.translation.z = result.relative_t.z();
+        event.relative_transform.transform.rotation.x = q.x();
+        event.relative_transform.transform.rotation.y = q.y();
+        event.relative_transform.transform.rotation.z = q.z();
+        event.relative_transform.transform.rotation.w = q.w();
+
+        m_loop_event_pub->publish(event);
+
+        if (result.accepted) {
+            RCLCPP_INFO(this->get_logger(),
+                "Loop closure event: nodes(%d,%d) score=%.4f correction=%.3fm ACCEPTED",
+                result.node_i, result.node_j, result.match_score, result.correction_magnitude_m);
+        } else {
+            RCLCPP_DEBUG(this->get_logger(),
+                "Loop closure event: nodes(%d,%d) score=%.4f REJECTED",
+                result.node_i, result.node_j, result.match_score);
+        }
     }
 
     void saveMapsCB(const std::shared_ptr<interface::srv::SaveMaps::Request> request, std::shared_ptr<interface::srv::SaveMaps::Response> response)
@@ -296,6 +358,11 @@ private:
     message_filters::Subscriber<nav_msgs::msg::Odometry> m_odom_sub;
     std::shared_ptr<tf2_ros::TransformBroadcaster> m_tf_broadcaster;
     std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::PointCloud2, nav_msgs::msg::Odometry>>> m_sync;
+
+    // Loop closure event publishing + degenerate suppression
+    rclcpp::Publisher<fastlio2_health::msg::LoopClosureEvent>::SharedPtr m_loop_event_pub;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr m_degenerate_suppress_sub;
+    bool m_suppress_loop_closure = false;
 };
 
 int main(int argc, char **argv)

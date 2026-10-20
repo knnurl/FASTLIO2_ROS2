@@ -8,9 +8,14 @@
 #include <chrono>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <pcl_conversions/pcl_conversions.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 
 #include "interface/srv/refine_map.hpp"
 #include "interface/srv/save_poses.hpp"
+
+// Closed-loop integration: HBATrigger / HBACompletion from health monitor
+#include "fastlio2_health/msg/hba_trigger.hpp"
+#include "fastlio2_health/msg/hba_completion.hpp"
 
 using namespace std::chrono_literals;
 void fromStr(const std::string &str, std::string &file_name, Pose &pose)
@@ -50,13 +55,26 @@ public:
             std::bind(&HBANode::savePosesCB, this, std::placeholders::_1, std::placeholders::_2));
         m_timer = this->create_wall_timer(100ms, std::bind(&HBANode::mainCB, this));
         m_cloud_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("map_points", 10);
+
+        // ── Closed-loop integration ──
+        m_hba_completion_pub = this->create_publisher<fastlio2_health::msg::HBACompletion>(
+            "/hba/completion", 10);
+
+        m_hba_trigger_sub = this->create_subscription<fastlio2_health::msg::HBATrigger>(
+            "/hba/trigger", 10,
+            std::bind(&HBANode::onHbaTrigger, this, std::placeholders::_1));
+
+        RCLCPP_INFO(this->get_logger(), "Subscribed to /hba/trigger, publishing on /hba/completion");
     }
 
     void loadParameters()
     {
         this->declare_parameter("config_path", "");
+        this->declare_parameter("maps_path", "");
         std::string config_path;
         this->get_parameter<std::string>("config_path", config_path);
+        this->get_parameter<std::string>("maps_path", m_default_maps_path);
+
         YAML::Node config = YAML::LoadFile(config_path);
         if (!config)
         {
@@ -77,33 +95,20 @@ public:
         m_hba_config.down_sample = config["down_sample"].as<double>();
     }
 
-    void refineMapCB(const std::shared_ptr<interface::srv::RefineMap::Request> request, std::shared_ptr<interface::srv::RefineMap::Response> response)
+    bool loadFromPath(const std::string &maps_path)
     {
-        std::lock_guard<std::mutex> lock(m_service_mutex);
-        if (!std::filesystem::exists(request->maps_path))
-        {
-            response->success = false;
-            response->message = "maps_path not exists";
-            return;
-        }
+        if (!std::filesystem::exists(maps_path))
+            return false;
 
-        std::filesystem::path p_dir(request->maps_path);
+        std::filesystem::path p_dir(maps_path);
         std::filesystem::path pcd_dir = p_dir / "patches";
-        if (!std::filesystem::exists(pcd_dir))
-        {
-            response->success = false;
-            response->message = pcd_dir.string() + " not exists";
-            return;
-        }
-
         std::filesystem::path txt_file = p_dir / "poses.txt";
 
-        if (!std::filesystem::exists(txt_file))
-        {
-            response->success = false;
-            response->message = txt_file.string() + " not exists";
-            return;
-        }
+        if (!std::filesystem::exists(pcd_dir) || !std::filesystem::exists(txt_file))
+            return false;
+
+        // Reset HBA state for fresh load
+        m_hba = std::make_shared<HBA>(m_hba_config);
 
         std::ifstream ifs(txt_file);
         std::string line;
@@ -112,7 +117,6 @@ public:
         pcl::PCDReader reader;
         while (std::getline(ifs, line))
         {
-
             fromStr(line, file_name, pose);
             std::filesystem::path pcd_file = p_dir / "patches" / file_name;
             if (!std::filesystem::exists(pcd_file))
@@ -126,7 +130,19 @@ public:
             m_voxel_grid.filter(*cloud);
             m_hba->insert(cloud, pose);
         }
-        RCLCPP_INFO(this->get_logger(), "LOAD POSE %lu;", m_hba->poses().size());
+        RCLCPP_INFO(this->get_logger(), "Loaded %lu poses from %s", m_hba->poses().size(), maps_path.c_str());
+        return m_hba->poses().size() > 0;
+    }
+
+    void refineMapCB(const std::shared_ptr<interface::srv::RefineMap::Request> request, std::shared_ptr<interface::srv::RefineMap::Response> response)
+    {
+        std::lock_guard<std::mutex> lock(m_service_mutex);
+        if (!loadFromPath(request->maps_path))
+        {
+            response->success = false;
+            response->message = "Failed to load from " + request->maps_path;
+            return;
+        }
         response->success = true;
         response->message = "load poses success!";
         m_do_optimize = true;
@@ -161,6 +177,38 @@ public:
         response->message = "save poses success!";
         return;
     }
+
+    void onHbaTrigger(const fastlio2_health::msg::HBATrigger::SharedPtr msg)
+    {
+        std::lock_guard<std::mutex> lock(m_service_mutex);
+
+        RCLCPP_INFO(this->get_logger(), "HBA trigger received: reason=%s, nodes=%zu, fitness=%.3f",
+                     msg->trigger_reason.c_str(), msg->node_ids.size(), msg->trigger_fitness_score);
+
+        // If no data loaded, try loading from default maps_path
+        if (m_hba->poses().empty() && !m_default_maps_path.empty()) {
+            RCLCPP_INFO(this->get_logger(), "No data loaded, attempting load from: %s",
+                        m_default_maps_path.c_str());
+            if (!loadFromPath(m_default_maps_path)) {
+                RCLCPP_ERROR(this->get_logger(), "Failed to load data for HBA trigger");
+                publishCompletion(false, msg->node_ids, 0.0f);
+                return;
+            }
+        }
+
+        if (m_hba->poses().empty()) {
+            RCLCPP_ERROR(this->get_logger(), "No poses available for optimization");
+            publishCompletion(false, msg->node_ids, 0.0f);
+            return;
+        }
+
+        // Store pre-optimization poses for correction magnitude computation
+        m_pre_opt_poses = m_hba->poses();
+        m_pending_trigger_node_ids = msg->node_ids;
+        m_do_optimize = true;
+        m_publish_completion_on_done = true;
+    }
+
     void mainCB()
     {
         {
@@ -179,6 +227,13 @@ public:
 
             m_do_optimize = false;
             RCLCPP_WARN(this->get_logger(), "END OPTIMIZE");
+
+            // Publish completion for trigger-based integration
+            if (m_publish_completion_on_done) {
+                float mean_correction = computeMeanCorrection();
+                publishCompletion(true, m_pending_trigger_node_ids, mean_correction);
+                m_publish_completion_on_done = false;
+            }
         }
     }
 
@@ -199,6 +254,61 @@ public:
     }
 
 private:
+    float computeMeanCorrection()
+    {
+        const auto &post_poses = m_hba->poses();
+        if (m_pre_opt_poses.size() != post_poses.size() || post_poses.empty())
+            return 0.0f;
+
+        double total_displacement = 0.0;
+        for (size_t i = 0; i < post_poses.size(); i++) {
+            total_displacement += (post_poses[i].t - m_pre_opt_poses[i].t).norm();
+        }
+        return static_cast<float>(total_displacement / post_poses.size());
+    }
+
+    void publishCompletion(bool success, const std::vector<int> &node_ids, float mean_correction)
+    {
+        auto comp = fastlio2_health::msg::HBACompletion();
+        comp.header.stamp = this->now();
+        comp.header.frame_id = "map";
+        comp.success = success;
+        comp.node_ids = node_ids;
+        comp.mean_correction_magnitude = mean_correction;
+
+        // Attach the corrected map cloud
+        if (success && m_hba->poses().size() > 0) {
+            pcl::PointCloud<pcl::PointXYZI>::Ptr map_cloud = m_hba->getMapPoints();
+            m_voxel_grid.setInputCloud(map_cloud);
+            m_voxel_grid.filter(*map_cloud);
+            pcl::toROSMsg(*map_cloud, comp.corrected_pcd);
+            comp.corrected_pcd.header.frame_id = "map";
+            comp.corrected_pcd.header.stamp = this->now();
+
+            // Attach corrected transforms (one per pose)
+            for (size_t i = 0; i < m_hba->poses().size(); i++) {
+                geometry_msgs::msg::TransformStamped tf;
+                tf.header.stamp = this->now();
+                tf.header.frame_id = "map";
+                tf.child_frame_id = "hba_pose_" + std::to_string(i);
+                const Pose &p = m_hba->poses()[i];
+                tf.transform.translation.x = p.t.x();
+                tf.transform.translation.y = p.t.y();
+                tf.transform.translation.z = p.t.z();
+                Eigen::Quaterniond q(p.r);
+                tf.transform.rotation.x = q.x();
+                tf.transform.rotation.y = q.y();
+                tf.transform.rotation.z = q.z();
+                tf.transform.rotation.w = q.w();
+                comp.corrected_transforms.push_back(tf);
+            }
+        }
+
+        m_hba_completion_pub->publish(comp);
+        RCLCPP_INFO(this->get_logger(), "Published HBA completion: success=%s, correction=%.4fm",
+                     success ? "true" : "false", mean_correction);
+    }
+
     NodeConfig m_node_config;
     HBAConfig m_hba_config;
     std::shared_ptr<HBA> m_hba;
@@ -211,6 +321,14 @@ private:
     std::mutex m_service_mutex;
     bool m_do_optimize = false;
     rclcpp::TimerBase::SharedPtr m_timer;
+
+    // Closed-loop integration
+    rclcpp::Publisher<fastlio2_health::msg::HBACompletion>::SharedPtr m_hba_completion_pub;
+    rclcpp::Subscription<fastlio2_health::msg::HBATrigger>::SharedPtr m_hba_trigger_sub;
+    std::string m_default_maps_path;
+    Vec<Pose> m_pre_opt_poses;
+    std::vector<int> m_pending_trigger_node_ids;
+    bool m_publish_completion_on_done = false;
 };
 
 int main(int argc, char **argv)

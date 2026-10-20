@@ -1,5 +1,7 @@
 # FASTLIO2_ROS2 — Extended Mapping & Localization Suite
 
+> **Experimental snapshot (April 2026), not maintained.** This branch holds an untested prototype of a closed-loop map-health layer. It has known problems, including an inverted rollback check; see [docs/health-prototype/STATUS.md](docs/health-prototype/STATUS.md). The maintained code is on `main`.
+
 > **Based on [liangheming/FASTLIO2_ROS2](https://github.com/liangheming/FASTLIO2_ROS2)**
 > — a ROS2 port of [Fast-LIO2](https://github.com/hku-mars/FAST_LIO) by Xu *et al.*
 
@@ -39,7 +41,7 @@ Livox MID360 sensor.
    - [Semantic Segmentation](#semantic-segmentation)
 8. [ROS2 Topics & Services](#ros2-topics--services)
 9. [Configuration Reference](#configuration-reference)
-9. [Credits](#credits)
+10. [Credits](#credits)
 
 ---
 
@@ -81,12 +83,21 @@ The following were added on top — the original ICP path is explicitly left unc
 - **Degenerate scan guard** — scans below `min_cloud_points` are skipped entirely,
   preventing wasted ICP computation on empty or nearly-empty returns.
 - **Hot-reload of merged map** — after `stop_mapping` saves a merged PCD, the node
-  reloads it into both the ICP and global localizers on the next timer tick without
-  requiring a restart.
+  reloads it into the ICP localizer on the next timer tick without requiring a restart.
 - **Two-stage adaptive ICP** (`icp_localizer.cpp`) — rough and refine stages use separate
   voxel resolutions; if the rough fitness is marginal, the refine correspondence distance
   is automatically widened via `recovery_corr_scale` to avoid divergence from a
   slightly-off starting point.
+- **Auxiliary map update services** (`start_mapping` / `stop_mapping`) — while localizing,
+  the node can accumulate incoming scans into a secondary cloud. On `stop_mapping`, the
+  cloud is voxel-filtered, written to PCD, and the ICP localizer hot-reloads it.
+
+**Map Save Service** (addition to `fastlio2/`)
+
+The upstream `fastlio2` node had no `/fastlio2/save_map` service implementation despite
+the interface definition existing. The service handler is now implemented: it extracts all
+valid points from the live ikd-Tree, writes them as a binary PCD file to the requested
+path (creating parent directories as needed), and returns a success flag and point count.
 
 **Adaptive DBSCAN People Filter** (`lidar_people_filter`)
 
@@ -161,7 +172,7 @@ Integration of RandLA-Net (CVPR 2020) for per-scan SemanticKITTI labelling:
   MODE                  │
        │          ┌─────▼──────────────────┐
        │          │   ICP Localizer (C++)  │
-       │          │   NDT global search    │
+       │          │   Global search (force)│
        │          │   → continuous ICP     │
        │          │   → TF: map→base_link  │
        │          └────────────────────────┘
@@ -183,6 +194,118 @@ map
       └── body    (published by LIO node)
 ```
 
+### Closed Feedback Loop Architecture
+
+The `fastlio2_health` package connects the existing components into a self-healing
+closed-loop system. The `map_health_monitor` node is the central coordinator.
+
+```
+                        ┌──────────────────────────────────┐
+                        │       map_health_monitor         │
+                        │  ┌────────────────────────────┐  │
+                        │  │   Pipeline State Machine   │  │
+                        │  │  MONITORING → TRIGGER_HBA  │  │
+                        │  │  → HBA_RUNNING → MERGING   │  │
+                        │  │  → VERIFYING → COMMIT      │  │
+                        │  │        or → ROLLBACK       │  │
+                        │  └────────────────────────────┘  │
+                        │                                  │
+                        │  ┌──────────┐ ┌──────────────┐   │
+                        │  │ Spatial  │ │  Staleness   │   │
+                        │  │ Quality  │ │  Tracker     │   │
+                        │  │  Grid    │ │              │   │
+                        │  └──────────┘ └──────────────┘   │
+                        │                                  │
+                        │  ┌────────────────────────────┐  │
+                        │  │  PoseGraphPartitioner      │  │
+                        │  │  (spatial subgraph select) │  │
+                        │  └────────────────────────────┘  │
+                        └──────┬───────────┬───────────────┘
+                               │           │
+             /hba/trigger      │           │  /map_merge/trigger
+                    ┌──────────▼──┐   ┌────▼──────────────────┐
+                    │  HBA Node   │   │  Voxel Merge Node     │
+                    │  (existing) │   │  TIMESTAMP_PRIORITY   │
+                    │             │   │  DENSITY_PRIORITY     │
+                    └──────┬──────┘   │  CONFIDENCE_WEIGHTED  │
+                           │          └────┬──────────────────┘
+             /hba/completion               │  /map_merge/completion
+                           │               │
+                    ┌──────▼───────────────▼──────────┐
+                    │        map_health_monitor       │
+                    │  (evaluates post-merge quality) │
+                    │  → COMMIT or ROLLBACK           │
+                    └──────┬──────────────────────────┘
+                           │
+              ┌────────────▼────────────┐
+              │   map_validator         │
+              │   ATE/RPE metrics       │
+              │   /validation/set_baseline
+              │   /validation/compare   │
+              └─────────────────────────┘
+
+  ───── Data Sources ─────
+
+  /fastlio2/lio_odom ──────► robot position → quality cell lookup
+  /fsm/icp_fitness ────────► quality grid update, degradation check
+  /fsm/state ──────────────► FSM state awareness
+  /loop_closure/event ─────► accepted closures trigger HBA
+  /degenerate_guard/suppress_loop_closure ──► suppresses false closures
+
+  ───── Outputs ─────
+
+  /map_health/quality_grid ──► OccupancyGrid (RViz: green=ok, red=bad)
+  /map_health/staleness_grid ► OccupancyGrid (RViz: stale regions)
+  /map_health/status ────────► MapHealthStatus (global score + phase)
+  /map_health/gui_state ─────► JSON blob for PyQt5 GUI panel
+```
+
+### New Topics (Health System)
+
+| Topic | Type | Publisher | Description |
+|-------|------|-----------|-------------|
+| `/map_health/quality_grid` | `nav_msgs/OccupancyGrid` | map_health_monitor | Spatial map quality heatmap |
+| `/map_health/staleness_grid` | `nav_msgs/OccupancyGrid` | map_health_monitor | Spatial staleness heatmap |
+| `/map_health/status` | `fastlio2_health/MapHealthStatus` | map_health_monitor | Global health score + phase |
+| `/map_health/gui_state` | `std_msgs/String` | map_health_monitor | JSON state for GUI |
+| `/hba/trigger` | `fastlio2_health/HBATrigger` | map_health_monitor | Triggers HBA on subgraph |
+| `/hba/completion` | `fastlio2_health/HBACompletion` | hba_node | HBA result + corrected PCD |
+| `/map_merge/trigger` | `fastlio2_health/MergeTrigger` | map_health_monitor | Triggers map merge |
+| `/map_merge/completion` | `fastlio2_health/MergeCompletion` | voxel_merge_node | Merge result |
+| `/map_merge/rollback` | `std_msgs/Bool` | map_health_monitor | Rollback last merge |
+| `/loop_closure/event` | `fastlio2_health/LoopClosureEvent` | pgo_node | Loop closure detections |
+| `/degenerate_guard/suppress_loop_closure` | `std_msgs/Bool` | degenerate_guard | Suppress loop closure |
+| `/validation/ate_rmse` | `std_msgs/Float64` | map_validator | ATE RMSE metric |
+| `/validation/rpe_trans` | `std_msgs/Float64` | map_validator | RPE translation metric |
+| `/validation/rpe_rot` | `std_msgs/Float64` | map_validator | RPE rotation metric |
+| `/validation/report` | `std_msgs/String` | map_validator | Full JSON metrics report |
+
+### New Services (Health System)
+
+| Service | Interface | Description |
+|---------|-----------|-------------|
+| `/validation/compute_now` | `std_srvs/Trigger` | Force immediate metric computation |
+| `/validation/set_baseline` | `std_srvs/Trigger` | Snapshot metrics as pre-merge baseline |
+| `/validation/compare_to_baseline` | `fastlio2_validation/CompareToBaseline` | Compare current vs baseline (PASS/FAIL) |
+| `/validation/load_ground_truth` | `fastlio2_validation/LoadGroundTruth` | Load reference trajectory |
+
+### New Parameters (Health System)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `degradation_threshold` | `0.4` | Combined degradation score that triggers HBA |
+| `improvement_threshold` | `0.05` | Minimum fitness improvement to accept merge |
+| `staleness_decay_s` | `300.0` | Seconds until a cell becomes fully stale |
+| `staleness_hba_threshold` | `0.8` | Staleness score that elevates HBA priority |
+| `confidence_threshold` | `0.7` | ICP fitness above which localisation is confident |
+| `verify_scan_count` | `30` | Scans to collect during post-merge verification |
+| `pre_merge_baseline_scans` | `20` | Scans for pre-merge fitness baseline |
+| `partition_cell_size_m` | `50.0` | Spatial partitioner cell size |
+| `partition_radius_cells` | `1` | Adjacent cells to include in HBA subgraph |
+| `merge_policy` | `TIMESTAMP_PRIORITY` | Default merge strategy |
+| `delta_m` | `1.0` | RPE sub-sequence length |
+| `ate_regression_threshold` | `0.05` | ATE worsening that triggers rollback |
+
 ---
 
 ## Package Overview
@@ -191,8 +314,8 @@ map
 
 | Package | Language | Role |
 |---------|----------|------|
-| `fastlio2` | C++ | LiDAR-inertial odometry — IESKF + ikd-Tree SLAM core |
-| `localizer` | C++ | Global localization (NDT+ICP) + continuous ICP tracking against a PCD map |
+| `fastlio2` | C++ | LiDAR-inertial odometry — IESKF + ikd-Tree SLAM core + `/fastlio2/save_map` service |
+| `localizer` | C++ | Global localization (ICP) + continuous ICP tracking + auxiliary map update |
 | `interface` | CMake | ROS2 service/message definitions |
 | `pgo` | C++ | Pose-graph optimization |
 | `hba` | C++ | Hierarchical bundle adjustment for map refinement |
@@ -204,6 +327,8 @@ map
 | `fastlio2_bringup` | Python | Launch files + PyQt5 GUI control panel |
 | `lidar_people_filter` | Python | Real-time DBSCAN people removal + offline PCD cleaner |
 | `lidar_semantic` | Python/PyTorch | RandLA-Net semantic segmentation of incoming scans |
+| `fastlio2_health` | C++ | Map health monitor, voxel merge node, spatial partitioner, staleness tracker |
+| `fastlio2_validation` | C++ | ATE/RPE trajectory validation node |
 
 ---
 
@@ -211,6 +336,15 @@ map
 
 - **ROS2** Humble or later
 - **Livox ROS Driver 2** — built in a separate workspace (e.g. `~/livox_ws`)
+- **GTSAM** — required by `hba` and `pgo` for pose-graph optimization:
+  ```bash
+  sudo apt install libgtsam-dev
+  ```
+  If not available via apt, add the borglab PPA first:
+  ```bash
+  sudo add-apt-repository ppa:borglab/gtsam-release-4.1
+  sudo apt update && sudo apt install libgtsam-dev libgtsam-unstable-dev
+  ```
 - **Python ≥ 3.8** with `PyQt5`, `numpy`, `open3d`, `scikit-learn`
 - **PyTorch ≥ 1.12** with CUDA (for `lidar_semantic` — CPU fallback available)
 - A **Livox MID360** or compatible sensor (for live data mode)
@@ -228,22 +362,25 @@ pip install PyQt5 numpy open3d scikit-learn torch torchvision
 source ~/livox_ws/install/setup.bash
 
 # 2. Clone this repo into your ROS2 workspace
-cd ~/ros2_ws/src
-git clone https://github.com/knnurl/FASTLIO2_ROS2.git
+mkdir -p ~/fastlio3_ws/src
+cd ~/fastlio3_ws/src
+git clone <repo-url> .
 
 # 3. Build
-cd ~/ros2_ws
-colcon build --symlink-install --packages-select \
-    interface fastlio2 localizer fastlio2_bringup lidar_people_filter lidar_semantic
+cd ~/fastlio3_ws
+colcon build --symlink-install --allow-overriding interface
 
 # 4. Source the workspace
 source install/setup.bash
 ```
 
+> **Note:** `--allow-overriding interface` is required because `interface` is also present in
+> the upstream workspaces (`fastlio_ws`, `fastlio2_ws`). Without it colcon will refuse to build.
+
 ### Download semantic weights (optional)
 
 ```bash
-cd src/FASTLIO2_ROS2/lidar_semantic
+cd src/lidar_semantic
 python3 scripts/download_weights.py
 ```
 
@@ -265,7 +402,7 @@ The panel lets you:
 - Toggle **Live data** to launch the Livox driver, or leave it unchecked to replay a rosbag
 - Browse to a `.pcd` map file
 - Start / stop the stack and monitor live log output
-- Call services (Save Map, Force Re-Localize, Check Status) with one click
+- Call services (Save Map, Force Re-Localize, Start/Stop Map Update, Check Status) with one click
 
 ### Mapping
 
@@ -322,11 +459,27 @@ ros2 launch fastlio2_bringup localization.launch.py \
     map_path:=$HOME/maps/map_clean.pcd
 ```
 
-**Trigger manual re-localization at any time** (e.g. after the robot has been moved):
+**Trigger global re-localization at any time** (e.g. after the robot has been moved):
 
 ```bash
 ros2 service call /localizer/global_relocalize interface/srv/GlobalRelocalize \
     "{pcd_path: '', force: true}"
+```
+
+Pass `pcd_path` to also reload the map from a new file before searching.
+
+**Update the map while localizing** (append new areas without stopping):
+
+```bash
+# Start accumulating new scans
+ros2 service call /localizer/start_mapping interface/srv/StartMapping \
+    "{output_path: '$HOME/maps/map_updated.pcd', voxel_size: 0.05}"
+
+# ... drive the robot through the new area ...
+
+# Stop, save, and hot-reload the merged map
+ros2 service call /localizer/stop_mapping interface/srv/StopMapping \
+    "{output_path: '$HOME/maps/map_updated.pcd'}"
 ```
 
 ### People Filter
@@ -379,11 +532,29 @@ Published topics:
 
 | Service | Interface | Description |
 |---------|-----------|-------------|
-| `/fastlio2/save_map` | `interface/srv/SaveMaps` | Write current ikd-tree map to a PCD file |
-| `/localizer/global_relocalize` | `interface/srv/GlobalRelocalize` | Trigger NDT+ICP global search; returns pose + fitness score |
+| `/fastlio2/save_map` | `interface/srv/SaveMaps` | Extract ikd-Tree map and write to a PCD file |
+| `/localizer/global_relocalize` | `interface/srv/GlobalRelocalize` | Trigger ICP global search; returns pose + fitness score |
 | `/localizer/is_valid` | `interface/srv/IsValid` | Query whether the localizer is tracking confidently |
-| `/localizer/start_mapping` | `interface/srv/StartMapping` | Begin auxiliary map update |
-| `/localizer/stop_mapping` | `interface/srv/StopMapping` | End map update and merge result |
+| `/localizer/start_mapping` | `interface/srv/StartMapping` | Begin accumulating scans for auxiliary map update |
+| `/localizer/stop_mapping` | `interface/srv/StopMapping` | Save accumulated scans to PCD and hot-reload the localizer |
+| `/localizer/relocalize` | `interface/srv/Relocalize` | ICP relocalization with explicit pose hint (x, y, z, yaw, pitch, roll) |
+
+#### GlobalRelocalize request/response
+
+```
+# Request
+string pcd_path   # optional: reload map from this path before searching (empty = use loaded map)
+bool   force      # reserved for future use; pass true
+
+# Response
+bool    success
+string  message
+float32 fitness_score   # lower is better (mean squared point-to-point distance)
+float32 x               # estimated position (m)
+float32 y
+float32 z
+float32 yaw_deg         # estimated heading (degrees)
+```
 
 ---
 
@@ -395,7 +566,19 @@ Core LIO parameters: feature thresholds, voxel filter sizes, ikd-tree parameters
 
 ### `localizer/config/localizer.yaml`
 
-Global search resolution (NDT voxel size, angular sweep step) and ICP tracking thresholds (max correspondence distance, convergence tolerance, fitness score cutoff for LOST→SEARCHING transition).
+ICP tracking thresholds (voxel resolutions, max iterations, fitness score cutoffs).
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `rough_scan_resolution` | `0.25` | Voxel size for rough-stage scan downsampling (m) |
+| `rough_map_resolution` | `0.25` | Voxel size for rough-stage map downsampling (m) |
+| `rough_max_iteration` | `5` | Max ICP iterations in rough stage |
+| `rough_score_thresh` | `0.2` | Fitness threshold to accept rough alignment |
+| `refine_scan_resolution` | `0.1` | Voxel size for refine-stage scan downsampling (m) |
+| `refine_map_resolution` | `0.1` | Voxel size for refine-stage map downsampling (m) |
+| `refine_max_iteration` | `10` | Max ICP iterations in refine stage |
+| `refine_score_thresh` | `0.1` | Fitness threshold to accept refined alignment |
+| `update_hz` | `1.0` | Rate at which the map→local TF is updated (Hz) |
 
 ### `lidar_people_filter/config/dbscan_filter.yaml`
 

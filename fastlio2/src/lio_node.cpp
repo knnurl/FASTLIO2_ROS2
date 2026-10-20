@@ -19,7 +19,12 @@
 #include <nav_msgs/msg/path.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <yaml-cpp/yaml.h>
+#include <pcl/io/pcd_io.h>
+#include <filesystem>
+#include "interface/srv/save_maps.hpp"
 
 using namespace std::chrono_literals;
 struct NodeConfig
@@ -59,12 +64,25 @@ public:
         m_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>("lio_odom", 10000);
         m_tf_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
+        // Closed-loop feedback: publish scan fitness for health monitor
+        m_icp_fitness_pub = this->create_publisher<std_msgs::msg::Float32>("/fsm/icp_fitness", 10);
+        m_fsm_state_pub = this->create_publisher<std_msgs::msg::String>("/fsm/state", 10);
+
+        // Closed-loop feedback: accept merged map to replace ikd-tree
+        m_merged_cloud_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+            "/map_merge/merged_cloud", 10,
+            std::bind(&LIONode::mergedCloudCB, this, std::placeholders::_1));
+
         m_state_data.path.poses.clear();
         m_state_data.path.header.frame_id = m_node_config.world_frame;
 
         m_kf = std::make_shared<IESKF>();
         m_builder = std::make_shared<MapBuilder>(m_builder_config, m_kf);
         m_timer = this->create_wall_timer(20ms, std::bind(&LIONode::timerCB, this));
+
+        m_save_map_srv = this->create_service<interface::srv::SaveMaps>(
+            "save_map",
+            std::bind(&LIONode::saveMapCB, this, std::placeholders::_1, std::placeholders::_2));
     }
 
     void loadParameters()
@@ -270,6 +288,92 @@ public:
         publishCloud(m_world_cloud_pub, world_cloud, m_node_config.world_frame, m_package.cloud_end_time);
 
         publishPath(m_path_pub, m_node_config.world_frame, m_package.cloud_end_time);
+
+        // Publish ICP fitness for closed-loop health monitoring
+        {
+            std_msgs::msg::Float32 fitness_msg;
+            fitness_msg.data = m_builder->lidar_processor()->lastScanFitness();
+            m_icp_fitness_pub->publish(fitness_msg);
+        }
+
+        // Publish builder state
+        {
+            std_msgs::msg::String state_msg;
+            switch (m_builder->status()) {
+                case BuilderStatus::IMU_INIT: state_msg.data = "IMU_INIT"; break;
+                case BuilderStatus::MAP_INIT: state_msg.data = "MAP_INIT"; break;
+                case BuilderStatus::MAPPING:  state_msg.data = "MAPPING";  break;
+            }
+            m_fsm_state_pub->publish(state_msg);
+        }
+    }
+
+    void mergedCloudCB(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+    {
+        if (m_builder->status() != BuilderStatus::MAPPING) {
+            RCLCPP_WARN(this->get_logger(), "Ignoring merged cloud — not in MAPPING state");
+            return;
+        }
+
+        CloudType::Ptr cloud(new CloudType);
+        pcl::fromROSMsg(*msg, *cloud);
+
+        if (cloud->empty()) {
+            RCLCPP_WARN(this->get_logger(), "Received empty merged cloud, ignoring");
+            return;
+        }
+
+        PointVec points(cloud->points.begin(), cloud->points.end());
+        m_builder->lidar_processor()->replaceMap(points);
+        RCLCPP_INFO(this->get_logger(), "ikd-tree replaced with merged cloud (%zu points)",
+                     points.size());
+    }
+
+    void saveMapCB(
+        const std::shared_ptr<interface::srv::SaveMaps::Request> req,
+        std::shared_ptr<interface::srv::SaveMaps::Response> res)
+    {
+        if (m_builder->status() != BuilderStatus::MAPPING) {
+            res->success = false;
+            res->message = "LIO not in MAPPING state — map not ready";
+            return;
+        }
+        std::string path = req->file_path;
+        if (path.empty()) {
+            res->success = false;
+            res->message = "file_path must not be empty";
+            return;
+        }
+        // Ensure parent directory exists
+        auto parent = std::filesystem::path(path).parent_path();
+        if (!parent.empty()) {
+            std::error_code ec;
+            std::filesystem::create_directories(parent, ec);
+            if (ec) {
+                res->success = false;
+                res->message = "Failed to create directory: " + ec.message();
+                return;
+            }
+        }
+        PointVec pts;
+        m_builder->lidar_processor()->getMap(pts);
+        if (pts.empty()) {
+            res->success = false;
+            res->message = "Map is empty — nothing to save";
+            return;
+        }
+        CloudType::Ptr cloud(new CloudType);
+        cloud->points.assign(pts.begin(), pts.end());
+        cloud->width  = static_cast<uint32_t>(cloud->points.size());
+        cloud->height = 1;
+        if (pcl::io::savePCDFileBinary(path, *cloud) != 0) {
+            res->success = false;
+            res->message = "pcl::io::savePCDFileBinary failed for path: " + path;
+            return;
+        }
+        res->success = true;
+        res->message = "Saved " + std::to_string(pts.size()) + " points to " + path;
+        RCLCPP_INFO(this->get_logger(), "Map saved: %s (%zu pts)", path.c_str(), pts.size());
     }
 
 private:
@@ -280,6 +384,11 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr m_world_cloud_pub;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr m_path_pub;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr m_odom_pub;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr m_icp_fitness_pub;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr m_fsm_state_pub;
+
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr m_merged_cloud_sub;
+    rclcpp::Service<interface::srv::SaveMaps>::SharedPtr m_save_map_srv;
 
     rclcpp::TimerBase::SharedPtr m_timer;
     StateData m_state_data;

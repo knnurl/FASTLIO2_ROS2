@@ -28,6 +28,7 @@ public:
     void setInput(const CloudType::Ptr &cloud);
 
     bool align(M4F &guess);
+    float getScore() const { return m_last_score; }
     ICPConfig &config() { return m_config; }
     CloudType::Ptr roughMap() { return m_rough_tgt; }
     CloudType::Ptr refineMap() { return m_refine_tgt; }
@@ -43,4 +44,5 @@ private:
     CloudType::Ptr m_refine_tgt;
     CloudType::Ptr m_rough_tgt;
     std::string m_pcd_path;
+    float m_last_score = 0.0f;
 };

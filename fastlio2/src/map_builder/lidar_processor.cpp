@@ -225,6 +225,10 @@ void LidarProcessor::updateLossFunc(State &state, SharedState &share_data)
         m_effect_norm_vec->points[effect_feat_num] = m_norm_vec->points[i];
         effect_feat_num++;
     }
+
+    // Store scan-match fitness: ratio of points with valid correspondences
+    m_last_scan_fitness = (size > 0) ? static_cast<float>(effect_feat_num) / static_cast<float>(size) : 0.0f;
+
     if (effect_feat_num < 1)
     {
         share_data.valid = false;
@@ -265,4 +269,14 @@ CloudType::Ptr LidarProcessor::transformCloud(CloudType::Ptr inp, const M3D &r, 
     CloudType::Ptr ret(new CloudType);
     pcl::transformPointCloud(*inp, *ret, transform);
     return ret;
+}
+
+void LidarProcessor::replaceMap(PointVec &points)
+{
+    // Rebuild ikd-tree from the new merged point cloud
+    m_ikdtree = std::make_shared<KD_TREE<PointType>>();
+    m_ikdtree->set_downsample_param(m_config.map_resolution);
+    m_ikdtree->Build(points);
+    // Reset local map bounds so trimCloudMap re-initialises around the new data
+    m_local_map.initialed = false;
 }

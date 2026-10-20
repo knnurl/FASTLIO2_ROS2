@@ -1,0 +1,6 @@
+---
+bool passed
+float64 ate_delta
+float64 rpe_trans_delta
+float64 rpe_rot_delta
+string report_json

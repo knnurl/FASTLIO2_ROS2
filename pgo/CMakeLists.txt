@@ -30,6 +30,7 @@ find_package(GTSAM REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(interface REQUIRED)
+find_package(fastlio2_health REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 
@@ -43,7 +44,7 @@ set(SRC_LIST src/pgos/commons.cpp
              src/pgos/simple_pgo.cpp)
 
 add_executable(pgo_node src/pgo_node.cpp ${SRC_LIST})
-ament_target_dependencies(pgo_node rclcpp std_msgs sensor_msgs nav_msgs message_filters pcl_conversions tf2_ros geometry_msgs visualization_msgs interface GTSAM)
+ament_target_dependencies(pgo_node rclcpp std_msgs sensor_msgs nav_msgs message_filters pcl_conversions tf2_ros geometry_msgs visualization_msgs interface fastlio2_health GTSAM)
 target_link_libraries(pgo_node ${PCL_LIBRARIES} gtsam yaml-cpp)
 
 

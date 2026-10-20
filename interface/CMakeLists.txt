@@ -16,6 +16,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/IsValid.srv"
   "srv/RefineMap.srv"
   "srv/SavePoses.srv"
+  "srv/GlobalRelocalize.srv"
+  "srv/StartMapping.srv"
+  "srv/StopMapping.srv"
   DEPENDENCIES std_msgs
 )
 

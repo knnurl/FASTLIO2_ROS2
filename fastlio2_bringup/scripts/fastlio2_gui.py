@@ -13,6 +13,7 @@ Or after colcon build + source:
 import os
 import sys
 import html
+import json
 import signal
 import subprocess
 from datetime import datetime
@@ -23,10 +24,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QFileDialog,
     QCheckBox, QPlainTextEdit, QFrame, QGroupBox,
-    QSizePolicy, QScrollBar,
+    QSizePolicy, QScrollBar, QComboBox,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt5.QtGui import QPainter, QColor, QTextCursor, QFont, QLinearGradient
+from PyQt5.QtGui import QPainter, QColor, QTextCursor, QFont, QLinearGradient, QImage, QPixmap
 
 # ── Catppuccin Mocha palette ──────────────────────────────────────────────────
 C = {
@@ -64,8 +65,8 @@ QGroupBox {{
     background-color: {C["mantle"]};
     border: 1px solid {C["surface1"]};
     border-radius: 8px;
-    margin-top: 14px;
-    padding: 12px 10px 10px 10px;
+    margin-top: 10px;
+    padding: 6px 8px 8px 8px;
     color: {C["overlay1"]};
     font-weight: bold;
     font-size: 11px;
@@ -311,6 +312,179 @@ class LogReader(QThread):
         self.line.emit("─── process output ended ───")
 
 
+# ── Health monitor ROS2 subscriber thread ─────────────────────────────────────
+
+class HealthMonitorThread(QThread):
+    """Subscribes to map_health topics via ros2 topic echo in a background thread."""
+    gui_state_update   = pyqtSignal(str)   # JSON string from /map_health/gui_state
+    icp_fitness_update = pyqtSignal(float) # from /fsm/icp_fitness
+    hba_complete_update  = pyqtSignal(float) # mean_correction_magnitude from /hba/completion
+    loop_suppress_update = pyqtSignal(bool)  # from /degenerate_guard/suppress_loop_closure
+
+    def __init__(self):
+        super().__init__()
+        self._running = True
+
+    def run(self):
+        import time
+
+        def _parse_gui_state(line):
+            if line.startswith("data:"):
+                return line[len("data:"):].strip().strip("'\"")
+            return None
+
+        def _parse_float(line):
+            if line.startswith("data:"):
+                try:
+                    return float(line[len("data:"):].strip())
+                except ValueError:
+                    pass
+            return None
+
+        def _parse_bool(line):
+            stripped = line.strip()
+            if "data: true" in stripped:
+                return True
+            if "data: false" in stripped:
+                return False
+            return None
+
+        def _parse_hba_correction(line):
+            # ros2 topic echo outputs YAML: 'mean_correction_magnitude: 0.0234'
+            stripped = line.strip()
+            if stripped.startswith("mean_correction_magnitude:"):
+                try:
+                    return float(stripped.split(":", 1)[1].strip())
+                except ValueError:
+                    pass
+            return None
+
+        poll_topics = [
+            (
+                ["ros2", "topic", "echo", "/map_health/gui_state", "--once"],
+                self.gui_state_update.emit, _parse_gui_state,
+            ),
+            (
+                ["ros2", "topic", "echo", "/fsm/icp_fitness", "--once"],
+                self.icp_fitness_update.emit, _parse_float,
+            ),
+            (
+                ["ros2", "topic", "echo", "/hba/completion", "--once"],
+                self.hba_complete_update.emit, _parse_hba_correction,
+            ),
+            (
+                ["ros2", "topic", "echo", "/degenerate_guard/suppress_loop_closure", "--once"],
+                self.loop_suppress_update.emit, _parse_bool,
+            ),
+        ]
+
+        while self._running:
+            for cmd, sig, parse in poll_topics:
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True,
+                                            timeout=2, env={**os.environ})
+                    for line in result.stdout.strip().split('\n'):
+                        val = parse(line.strip())
+                        if val is not None:
+                            sig(val)
+                            break
+                except Exception:
+                    pass
+            time.sleep(1.0)
+
+    def stop(self):
+        self._running = False
+
+
+# ── Mini occupancy grid renderer ─────────────────────────────────────────────
+
+class MiniGridWidget(QWidget):
+    """Renders a small OccupancyGrid-like visualisation using QPainter."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._data = []
+        self._width = 1
+        self._height = 1
+        self.setMinimumSize(120, 80)
+        self.setMaximumHeight(120)
+
+    def set_data(self, data, width, height):
+        self._data = data
+        self._width = max(1, width)
+        self._height = max(1, height)
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w = self.width()
+        h = self.height()
+        cell_w = w / self._width
+        cell_h = h / self._height
+
+        for row in range(self._height):
+            for col in range(self._width):
+                idx = row * self._width + col
+                val = self._data[idx] if idx < len(self._data) else -1
+                if val < 0:
+                    color = QColor(C["surface0"])
+                else:
+                    # 0 = green (healthy), 100 = red (degraded)
+                    ratio = min(1.0, val / 100.0)
+                    r = int(166 + (243 - 166) * ratio)  # green -> red
+                    g = int(227 - (227 - 139) * ratio)
+                    b = int(161 - (161 - 168) * ratio)
+                    color = QColor(r, g, b)
+                p.fillRect(int(col * cell_w), int(row * cell_h),
+                          int(cell_w) + 1, int(cell_h) + 1, color)
+
+
+# ── ICP Fitness trend chart ──────────────────────────────────────────────────
+
+class ICPTrendWidget(QWidget):
+    """Rolling line chart for ICP fitness scores."""
+    def __init__(self, max_samples=100, parent=None):
+        super().__init__(parent)
+        self._max = max_samples
+        self._samples = []
+        self.setMinimumSize(200, 60)
+        self.setMaximumHeight(80)
+
+    def add_sample(self, val):
+        self._samples.append(val)
+        if len(self._samples) > self._max:
+            self._samples.pop(0)
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w = self.width()
+        h = self.height()
+
+        # Background
+        p.fillRect(0, 0, w, h, QColor(C["crust"]))
+
+        if len(self._samples) < 2:
+            return
+
+        # Draw line
+        n = len(self._samples)
+        step = w / max(1, n - 1)
+        p.setPen(QColor(C["green"]))
+        for i in range(1, n):
+            x0 = (i - 1) * step
+            x1 = i * step
+            y0 = h - self._samples[i - 1] * h
+            y1 = h - self._samples[i] * h
+            p.drawLine(int(x0), int(y0), int(x1), int(y1))
+
+        # Threshold line at 0.7
+        p.setPen(QColor(C["yellow"]))
+        ty = h - 0.7 * h
+        p.drawLine(0, int(ty), w, int(ty))
+
+
 # ── Status dot widget ─────────────────────────────────────────────────────────
 
 class StatusDot(QWidget):
@@ -546,6 +720,128 @@ class MainWindow(QMainWindow):
         self._svc_grid.setSpacing(8)
         self._svc_btns = {}
         content_lay.addWidget(self._svc_box)
+
+        # ── Map Health Panel ─────────────────────────────────────���────────
+        self._health_box = QGroupBox("MAP HEALTH")
+        health_lay = QVBoxLayout(self._health_box)
+        health_lay.setContentsMargins(10, 6, 10, 10)
+        health_lay.setSpacing(6)
+
+        # Phase indicator
+        phase_row = QHBoxLayout()
+        phase_row.setSpacing(8)
+        lbl_phase_title = QLabel("Phase:")
+        lbl_phase_title.setStyleSheet(f"color: {C['subtext0']}; font-size: 12px;")
+        lbl_phase_title.setFixedWidth(48)
+        self._health_phase_lbl = QLabel("MONITORING")
+        self._health_phase_lbl.setStyleSheet(
+            f"background-color: {C['green']}22; color: {C['green']}; "
+            f"border: 1px solid {C['green']}44; border-radius: 4px; "
+            f"padding: 2px 10px; font-weight: bold; font-size: 12px;"
+        )
+        self._health_phase_lbl.setFixedHeight(24)
+        phase_row.addWidget(lbl_phase_title)
+        phase_row.addWidget(self._health_phase_lbl)
+
+        # Loop-closure suppress indicator
+        self._suppress_lbl = QLabel("LC: active")
+        self._suppress_lbl.setFixedHeight(24)
+        self._suppress_lbl.setStyleSheet(
+            f"background-color: {C['green']}22; color: {C['green']}; "
+            f"border: 1px solid {C['green']}44; border-radius: 4px; "
+            f"padding: 2px 8px; font-size: 11px;"
+        )
+        phase_row.addWidget(self._suppress_lbl)
+        phase_row.addStretch()
+        health_lay.addLayout(phase_row)
+
+        # Stats row: health score, FSM state, HBA count, last merge outcome
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(16)
+        self._health_score_lbl = QLabel("Health: --")
+        self._health_score_lbl.setStyleSheet(f"color: {C['subtext1']}; font-size: 11px;")
+        self._fsm_state_lbl = QLabel("FSM: --")
+        self._fsm_state_lbl.setStyleSheet(f"color: {C['subtext1']}; font-size: 11px;")
+        self._hba_count_lbl = QLabel("HBA: 0")
+        self._hba_count_lbl.setStyleSheet(f"color: {C['subtext1']}; font-size: 11px;")
+        self._last_merge_lbl = QLabel("Merge: --")
+        self._last_merge_lbl.setStyleSheet(f"color: {C['subtext1']}; font-size: 11px;")
+        stats_row.addWidget(self._health_score_lbl)
+        stats_row.addWidget(self._fsm_state_lbl)
+        stats_row.addWidget(self._hba_count_lbl)
+        stats_row.addWidget(self._last_merge_lbl)
+        stats_row.addStretch()
+        health_lay.addLayout(stats_row)
+
+        # Mini quality grid + ICP trend chart
+        vis_row = QHBoxLayout()
+        vis_row.setSpacing(8)
+        self._quality_grid_widget = MiniGridWidget()
+        self._icp_trend_widget = ICPTrendWidget()
+        vis_row.addWidget(self._quality_grid_widget, stretch=1)
+        vis_row.addWidget(self._icp_trend_widget, stretch=2)
+        health_lay.addLayout(vis_row)
+
+        # Toggle: quality vs staleness grid
+        toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(8)
+        self._grid_toggle_btn = QPushButton("Show Staleness")
+        self._grid_toggle_btn.setFixedHeight(26)
+        self._grid_toggle_btn.setFixedWidth(120)
+        self._grid_toggle_btn.setStyleSheet(
+            f"QPushButton {{ background: {C['surface0']}; color: {C['overlay1']}; "
+            f"border: 1px solid {C['surface1']}; border-radius: 4px; font-size: 11px; }}"
+            f"QPushButton:hover {{ background: {C['surface1']}; color: {C['text']}; }}"
+        )
+        self._showing_staleness = False
+        self._grid_toggle_btn.clicked.connect(self._toggle_grid_view)
+        toggle_row.addWidget(self._grid_toggle_btn)
+        toggle_row.addStretch()
+
+        # Merge policy dropdown
+        lbl_policy = QLabel("Merge policy:")
+        lbl_policy.setStyleSheet(f"color: {C['subtext0']}; font-size: 11px;")
+        self._policy_combo = QComboBox()
+        self._policy_combo.addItems(["TIMESTAMP_PRIORITY", "DENSITY_PRIORITY", "CONFIDENCE_WEIGHTED"])
+        self._policy_combo.setFixedHeight(26)
+        self._policy_combo.setFixedWidth(180)
+        self._policy_combo.setStyleSheet(
+            f"QComboBox {{ background: {C['crust']}; color: {C['text']}; "
+            f"border: 1px solid {C['surface1']}; border-radius: 4px; padding: 2px 8px; font-size: 11px; }}"
+        )
+        self._policy_combo.currentTextChanged.connect(self._on_policy_changed)
+        toggle_row.addWidget(lbl_policy)
+        toggle_row.addWidget(self._policy_combo)
+        health_lay.addLayout(toggle_row)
+
+        # Manual override buttons
+        override_row = QHBoxLayout()
+        override_row.setSpacing(6)
+        self._force_hba_btn = QPushButton("Force HBA Now")
+        self._force_merge_btn = QPushButton("Force Merge Now")
+        self._rollback_btn = QPushButton("Rollback Last Merge")
+        for btn in (self._force_hba_btn, self._force_merge_btn, self._rollback_btn):
+            btn.setFixedHeight(30)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {C['surface0']}; color: {C['peach']}; "
+                f"border: 1px solid {C['peach']}44; border-radius: 4px; font-size: 11px; }}"
+                f"QPushButton:hover {{ background: {C['peach']}22; border-color: {C['peach']}; }}"
+            )
+        self._force_hba_btn.clicked.connect(self._force_hba)
+        self._force_merge_btn.clicked.connect(self._force_merge)
+        self._rollback_btn.clicked.connect(self._rollback_merge)
+        override_row.addWidget(self._force_hba_btn)
+        override_row.addWidget(self._force_merge_btn)
+        override_row.addWidget(self._rollback_btn)
+        health_lay.addLayout(override_row)
+
+        content_lay.addWidget(self._health_box)
+
+        # Start health monitor polling
+        self._health_thread = None
+        self._hba_trigger_count = 0
+        self._last_merge_outcome = "--"
+        self._last_reported_phase = ""
 
         # ── Log ───────────────────────────────────────────────────────────
         log_box = QGroupBox("OUTPUT")
@@ -840,6 +1136,7 @@ class MainWindow(QMainWindow):
             return
         self._launch_rviz()
         self._update_rviz_btn()
+        self._start_health_monitoring()
         self._log_reader = LogReader(self._proc)
         self._log_reader.line.connect(lambda ln: self._log_signal.emit(ln, ""))
         self._log_reader.start()
@@ -975,9 +1272,135 @@ class MainWindow(QMainWindow):
         )
         self._log.moveCursor(QTextCursor.End)
 
+    # ── Health panel ────────────────────────────────────────────────────────
+
+    def _toggle_grid_view(self):
+        self._showing_staleness = not self._showing_staleness
+        self._grid_toggle_btn.setText(
+            "Show Quality" if self._showing_staleness else "Show Staleness"
+        )
+
+    def _on_policy_changed(self, policy):
+        """Set merge_policy ROS2 parameter on the voxel_merge_node."""
+        cmd = [
+            "ros2", "param", "set", "/voxel_merge_node", "merge_policy", policy
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=5,
+                           env={**os.environ})
+            self._log_colored(f"Merge policy set to: {policy}", C["teal"])
+        except Exception as exc:
+            self._log_colored(f"Failed to set merge policy: {exc}", C["red"])
+
+    def _call_health_srv(self, srv_path, label, color):
+        """Call a std_srvs/Trigger service on the health monitor and log the result."""
+        cmd = ["ros2", "service", "call", srv_path, "std_srvs/srv/Trigger", "{}"]
+        self._log_colored(f"Calling {srv_path}…", color)
+        t = ServiceThread(label, cmd, srv_path, timeout=10)
+        t.result.connect(self._svc_done)
+        self._svc_threads.append(t)
+        t.start()
+
+    def _force_hba(self):
+        self._call_health_srv("/map_health/force_hba", "Force HBA", C["peach"])
+
+    def _force_merge(self):
+        self._call_health_srv("/map_health/force_merge", "Force Merge", C["peach"])
+
+    def _rollback_merge(self):
+        self._call_health_srv("/map_health/force_rollback", "Rollback", C["red"])
+
+    def _on_gui_state_update(self, json_str):
+        """Called when map_health/gui_state publishes a new JSON blob."""
+        try:
+            state = json.loads(json_str)
+        except (json.JSONDecodeError, TypeError):
+            return
+
+        phase  = state.get("phase", "UNKNOWN")
+        health = state.get("global_health", 0.0)
+
+        # Phase colour coding
+        phase_colors = {
+            "MONITORING":  C["green"],
+            "TRIGGER_HBA": C["yellow"],
+            "HBA_RUNNING": C["yellow"],
+            "MERGING":     C["peach"],
+            "VERIFYING":   C["peach"],
+            "ROLLBACK":    C["red"],
+        }
+        color = phase_colors.get(phase, C["overlay1"])
+        self._health_phase_lbl.setText(phase)
+        self._health_phase_lbl.setStyleSheet(
+            f"background-color: {color}22; color: {color}; "
+            f"border: 1px solid {color}44; border-radius: 4px; "
+            f"padding: 2px 10px; font-weight: bold; font-size: 12px;"
+        )
+
+        # Health score
+        self._health_score_lbl.setText(f"Health: {health:.2f}")
+
+        # FSM state from LIO node
+        fsm = state.get("fsm_state", "")
+        if fsm:
+            self._fsm_state_lbl.setText(f"FSM: {fsm}")
+
+        # Count HBA runs (increment on entering HBA_RUNNING)
+        if phase == "HBA_RUNNING":
+            prev = getattr(self, "_last_reported_phase", "")
+            if prev != "HBA_RUNNING":
+                self._hba_trigger_count += 1
+                self._hba_count_lbl.setText(f"HBA: {self._hba_trigger_count}")
+        self._last_reported_phase = phase
+
+        # Verification countdown
+        verify_remaining = state.get("verification_remaining", 0)
+        if phase == "VERIFYING" and verify_remaining > 0:
+            self._last_merge_lbl.setText(f"Verify: {verify_remaining} scans left")
+
+    def _on_hba_complete_update(self, correction_m):
+        """Called when /hba/completion publishes a message."""
+        self._last_merge_lbl.setText(f"HBA corr: {correction_m:.4f}m")
+
+    def _on_loop_suppress_update(self, suppressed):
+        """Called when /degenerate_guard/suppress_loop_closure changes."""
+        if suppressed:
+            self._suppress_lbl.setText("LC: suppressed")
+            self._suppress_lbl.setStyleSheet(
+                f"background-color: {C['red']}22; color: {C['red']}; "
+                f"border: 1px solid {C['red']}44; border-radius: 4px; "
+                f"padding: 2px 8px; font-size: 11px;"
+            )
+        else:
+            self._suppress_lbl.setText("LC: active")
+            self._suppress_lbl.setStyleSheet(
+                f"background-color: {C['green']}22; color: {C['green']}; "
+                f"border: 1px solid {C['green']}44; border-radius: 4px; "
+                f"padding: 2px 8px; font-size: 11px;"
+            )
+
+    def _on_icp_fitness_update(self, val):
+        self._icp_trend_widget.add_sample(val)
+
+    def _start_health_monitoring(self):
+        if self._health_thread and self._health_thread.isRunning():
+            return
+        self._health_thread = HealthMonitorThread()
+        self._health_thread.gui_state_update.connect(self._on_gui_state_update)
+        self._health_thread.icp_fitness_update.connect(self._on_icp_fitness_update)
+        self._health_thread.hba_complete_update.connect(self._on_hba_complete_update)
+        self._health_thread.loop_suppress_update.connect(self._on_loop_suppress_update)
+        self._health_thread.start()
+
+    def _stop_health_monitoring(self):
+        if self._health_thread:
+            self._health_thread.stop()
+            self._health_thread = None
+
     # ── Cleanup ───────────────────────────────────────────────────────────────
 
     def closeEvent(self, event):
+        self._stop_health_monitoring()
         if self._is_running():
             try:
                 os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)

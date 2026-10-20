@@ -31,6 +31,15 @@ public:
     M3D r_wl() { return m_kf->x().r_wi * m_kf->x().r_il; }
     V3D t_wl() { return m_kf->x().t_wi + m_kf->x().r_wi * m_kf->x().t_il; }
 
+    /// Ratio of effective scan-match correspondences (0=bad, 1=perfect)
+    float lastScanFitness() const { return m_last_scan_fitness; }
+
+    /// Replace the ikd-tree with a new point cloud (used for merged-map feedback)
+    void replaceMap(PointVec &points);
+
+    /// Extract all valid points from the ikd-tree (used for save_map service)
+    void getMap(PointVec &points) { m_ikdtree->flatten(m_ikdtree->Root_Node, points, NOT_RECORD); }
+
 private:
     Config m_config;
     LocalMap m_local_map;
@@ -45,4 +54,5 @@ private:
     CloudType::Ptr m_effect_norm_vec;
     std::vector<PointVec> m_nearest_points;
     pcl::VoxelGrid<PointType> m_scan_filter;
+    float m_last_scan_fitness = 0.0f;
 };

@@ -1,0 +1,6 @@
+string file_path
+string format   # PCD | TUM | KITTI
+---
+bool success
+string message
+int32 num_poses_loaded

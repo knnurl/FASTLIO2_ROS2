@@ -168,6 +168,101 @@ void SimplePGO::searchForLoopPairs()
     m_history_pairs.emplace_back(one_pair.target_id, one_pair.source_id);
 }
 
+LoopDetectionResult SimplePGO::searchForLoopPairsWithResult()
+{
+    LoopDetectionResult result;
+
+    if (m_key_poses.size() < 10)
+        return result;
+    if (m_config.min_loop_detect_duration > 0.0)
+    {
+        if (m_history_pairs.size() > 0)
+        {
+            double current_time = m_key_poses.back().time;
+            double last_time = m_key_poses[m_history_pairs.back().second].time;
+            if (current_time - last_time < m_config.min_loop_detect_duration)
+                return result;
+        }
+    }
+
+    size_t cur_idx = m_key_poses.size() - 1;
+    const KeyPoseWithCloud &last_item = m_key_poses.back();
+    pcl::PointXYZ last_pose_pt;
+    last_pose_pt.x = last_item.t_global(0);
+    last_pose_pt.y = last_item.t_global(1);
+    last_pose_pt.z = last_item.t_global(2);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr key_poses_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    for (size_t i = 0; i < m_key_poses.size() - 1; i++)
+    {
+        pcl::PointXYZ pt;
+        pt.x = m_key_poses[i].t_global(0);
+        pt.y = m_key_poses[i].t_global(1);
+        pt.z = m_key_poses[i].t_global(2);
+        key_poses_cloud->push_back(pt);
+    }
+    pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
+    kdtree.setInputCloud(key_poses_cloud);
+    std::vector<int> ids;
+    std::vector<float> sqdists;
+    int neighbors = kdtree.radiusSearch(last_pose_pt, m_config.loop_search_radius, ids, sqdists);
+    if (neighbors == 0)
+        return result;
+
+    int loop_idx = -1;
+    for (size_t i = 0; i < ids.size(); i++)
+    {
+        int idx = ids[i];
+        if (std::abs(last_item.time - m_key_poses[idx].time) > m_config.loop_time_tresh)
+        {
+            loop_idx = idx;
+            break;
+        }
+    }
+
+    if (loop_idx == -1)
+        return result;
+
+    CloudType::Ptr target_cloud = getSubMap(loop_idx, m_config.loop_submap_half_range, m_config.submap_resolution);
+    CloudType::Ptr source_cloud = getSubMap(m_key_poses.size() - 1, 0, m_config.submap_resolution);
+    CloudType::Ptr align_cloud(new CloudType);
+
+    m_icp.setInputSource(source_cloud);
+    m_icp.setInputTarget(target_cloud);
+    m_icp.align(*align_cloud);
+
+    result.attempted = true;
+    result.node_i = static_cast<int>(loop_idx);
+    result.node_j = static_cast<int>(cur_idx);
+    result.match_score = m_icp.getFitnessScore();
+
+    M4F loop_transform = m_icp.getFinalTransformation();
+    result.relative_r = loop_transform.block<3, 3>(0, 0).cast<double>();
+    result.relative_t = loop_transform.block<3, 1>(0, 3).cast<double>();
+    result.correction_magnitude_m = result.relative_t.norm();
+
+    if (!m_icp.hasConverged() || m_icp.getFitnessScore() > m_config.loop_score_tresh)
+    {
+        result.accepted = false;
+        return result;
+    }
+
+    result.accepted = true;
+
+    LoopPair one_pair;
+    one_pair.source_id = cur_idx;
+    one_pair.target_id = loop_idx;
+    one_pair.score = m_icp.getFitnessScore();
+    M3D r_refined = loop_transform.block<3, 3>(0, 0).cast<double>() * m_key_poses[cur_idx].r_global;
+    V3D t_refined = loop_transform.block<3, 3>(0, 0).cast<double>() * m_key_poses[cur_idx].t_global + loop_transform.block<3, 1>(0, 3).cast<double>();
+    one_pair.r_offset = m_key_poses[loop_idx].r_global.transpose() * r_refined;
+    one_pair.t_offset = m_key_poses[loop_idx].r_global.transpose() * (t_refined - m_key_poses[loop_idx].t_global);
+    m_cache_pairs.push_back(one_pair);
+    m_history_pairs.emplace_back(one_pair.target_id, one_pair.source_id);
+
+    return result;
+}
+
 void SimplePGO::smoothAndUpdate()
 {
     bool has_loop = !m_cache_pairs.empty();

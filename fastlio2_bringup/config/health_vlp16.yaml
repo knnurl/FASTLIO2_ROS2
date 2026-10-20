@@ -1,0 +1,24 @@
+map_health_monitor:
+  ros__parameters:
+    degradation_threshold: 0.4
+    improvement_threshold: 0.05
+    staleness_decay_s: 300.0
+    staleness_hba_threshold: 0.8
+    confidence_threshold: 0.7
+    verify_scan_count: 30
+    pre_merge_baseline_scans: 20
+    quality_cell_size_m: 10.0
+    icp_history_window: 50
+    partition_cell_size_m: 50.0
+    partition_radius_cells: 1
+    merge_policy: "TIMESTAMP_PRIORITY"
+
+voxel_merge_node:
+  ros__parameters:
+    merge_policy: "TIMESTAMP_PRIORITY"
+    voxel_resolution: 0.3
+
+map_validator:
+  ros__parameters:
+    delta_m: 1.0
+    ate_regression_threshold: 0.05

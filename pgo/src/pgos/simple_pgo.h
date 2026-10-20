@@ -30,6 +30,18 @@ struct LoopPair
     double score;
 };
 
+struct LoopDetectionResult
+{
+    bool attempted = false;     // whether a candidate was found and ICP was run
+    bool accepted = false;      // whether the closure passed the acceptance threshold
+    int node_i = -1;
+    int node_j = -1;
+    double match_score = 0.0;   // ICP fitness score (lower = better match)
+    double correction_magnitude_m = 0.0;
+    M3D relative_r = M3D::Identity();
+    V3D relative_t = V3D::Zero();
+};
+
 struct Config
 {
     double key_pose_delta_deg = 10;
@@ -54,6 +66,7 @@ public:
     bool hasLoop(){return m_cache_pairs.size() > 0;}
 
     void searchForLoopPairs();
+    LoopDetectionResult searchForLoopPairsWithResult();
 
     void smoothAndUpdate();
 

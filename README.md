@@ -17,7 +17,7 @@ Livox MID360 sensor.
     <img src="docs/media/demo.gif" width="800" alt="FASTLIO2 demo: mapping, global re-localization and map merging">
   </a>
   <br>
-  <sub>Preview at 10× speed. Click to watch the full video on YouTube.</sub>
+  <sub>Highlights with the captions slowed down to read. Click to watch the full video on YouTube.</sub>
 </div>
 <br>
 

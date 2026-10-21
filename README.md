@@ -4,9 +4,9 @@
 > — a ROS2 port of [Fast-LIO2](https://github.com/hku-mars/FAST_LIO) by Xu *et al.*
 
 This fork extends the upstream project with a full localization pipeline, a real-time people
-filter, semantic point-cloud labelling, and a GUI-based launch system — forming a
-production-ready system for indoor LiDAR-inertial mapping and localization with a
-Livox MID360 sensor.
+filter, semantic point-cloud labelling, and a GUI-based launch system, for indoor
+LiDAR-inertial mapping and localization with a Livox MID360 sensor. It is research
+code; see [Status and Testing](#status-and-testing) for what is checked automatically.
 
 ---
 
@@ -41,7 +41,8 @@ Livox MID360 sensor.
    - [Semantic Segmentation](#semantic-segmentation)
 8. [ROS2 Topics & Services](#ros2-topics--services)
 9. [Configuration Reference](#configuration-reference)
-9. [Credits](#credits)
+10. [Status and Testing](#status-and-testing)
+11. [Credits](#credits)
 
 ---
 
@@ -134,9 +135,10 @@ in indoor environments:
   classifier sees consistent cluster shapes regardless of range or scan overlap.
 - **Temporal consistency tracker** (`RepeatedHumanTracker`) — a sliding-window
   voxel-hit accumulator that tracks classified clusters over a configurable frame window
-  (default 12 frames). Voxels present in ≥ 70% of frames are flagged as static
-  structures and kept; voxels that appear/disappear are removed as dynamic people.
-  This catches stationary people that geometry alone cannot distinguish from furniture.
+  (default 12 frames). A voxel that falls inside a human-shaped cluster in ≥ 70% of
+  the window's frames is treated as a stationary person and removed, even in frames
+  where the classifier misses it. Walls and furniture never look human-shaped, so they
+  are never confirmed, and a voxel clears once the person leaves.
 - **Multi-criterion geometry classifier** — height, footprint diameter, aspect ratio,
   point count, and an explicit single-axis width guard to prevent wall segments from
   being misclassified as humans.
@@ -248,8 +250,8 @@ Frame names come from the configs (`world_frame`/`body_frame` in `lio.yaml`,
 
 - **ROS2** Humble or later
 - **C++ libraries** — PCL, Eigen3, Sophus, yaml-cpp (all resolvable via `rosdep`);
-  **GTSAM** for the `pgo` loop-closure package (`libgtsam-dev` from the
-  [GTSAM PPA](https://gtsam.org/get_started/), or build from source)
+  **GTSAM** for the `pgo` and `hba` packages (`sudo apt install libgtsam-dev
+  libgtsam-unstable-dev` on Ubuntu 22.04; CI uses these)
 - **Livox ROS Driver 2** — built in a separate workspace (e.g. `~/livox_ws`)
 - **Python ≥ 3.8** with `PyQt5`, `numpy`, `open3d`, `scikit-learn`
 - **PyTorch ≥ 1.12** with CUDA (for `lidar_semantic` — CPU fallback available)
@@ -480,6 +482,36 @@ static_threshold: 0.70  # fraction of frames → static, keep
 
 Model path, inference device (`cuda` / `cpu`), number of points per inference (16 384),
 and per-class confidence threshold.
+
+---
+
+## Status and Testing
+
+[![build-and-test](https://github.com/knnurl/FASTLIO2_ROS2/actions/workflows/build.yml/badge.svg)](https://github.com/knnurl/FASTLIO2_ROS2/actions/workflows/build.yml)
+
+The stack has been run on a Livox MID360 indoors and on a Boston Dynamics Spot with a
+Velodyne VLP-16. CI builds every package on ROS 2 Humble (Ubuntu 22.04) and runs the
+unit tests:
+
+| Test | Covers |
+|------|--------|
+| `fastlio2/test/test_pc2_to_pcl.cpp` | PointCloud2 parsing: Velodyne, Ouster and Hesai time fields, intensity types, range and NaN filtering |
+| `localizer/test/test_localizer_fsm.cpp` | Localizer recovery: ICP failure patience, widening, global search vs. dead reckoning |
+| `lidar_people_filter/test/test_classifier.py` | People filter: human-cluster classifier with the shipped config, stationary-person tracker |
+
+Run them locally:
+
+```bash
+colcon test --packages-select fastlio2 localizer lidar_people_filter --ctest-args -LE linter
+colcon test-result --verbose
+```
+
+The packages keep upstream's ament linters enabled, and the code does not pass them
+yet, so `colcon test` without `-LE linter` also reports lint failures.
+
+The `experimental/health-prototype` branch holds an untested prototype of a closed-loop
+map-health layer from April 2026; its `docs/health-prototype/STATUS.md` lists the known
+problems.
 
 ---
 

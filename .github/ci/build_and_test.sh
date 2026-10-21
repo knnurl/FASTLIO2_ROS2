@@ -12,9 +12,15 @@ LIVOX_SDK2_REF=6a94015        # Livox-SDK2, 2024-02-18
 LIVOX_DRIVER_REF=6b9356c      # livox_ros_driver2, 2024-09-11
 
 export DEBIAN_FRONTEND=noninteractive
+# Launchpad (GTSAM PPA) has occasional 503s; let apt retry.
+echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
 apt-get update -qq
 apt-get install -y -qq git cmake build-essential python3-rosdep \
-    libgtsam-dev libgtsam-unstable-dev ros-humble-sophus > /dev/null
+    software-properties-common ros-humble-sophus > /dev/null
+# GTSAM 4.1 for pgo/hba, from the borglab PPA (as on the development machine).
+add-apt-repository -y ppa:borglab/gtsam-release-4.1 > /dev/null
+apt-get update -qq
+apt-get install -y -qq libgtsam-dev libgtsam-unstable-dev > /dev/null
 
 # Livox SDK2 and its ROS 2 driver are not in rosdep; build them from pinned commits.
 if [ ! -d /tmp/Livox-SDK2 ]; then

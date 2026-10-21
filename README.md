@@ -250,8 +250,9 @@ Frame names come from the configs (`world_frame`/`body_frame` in `lio.yaml`,
 
 - **ROS2** Humble or later
 - **C++ libraries** — PCL, Eigen3, Sophus, yaml-cpp (all resolvable via `rosdep`);
-  **GTSAM** for the `pgo` and `hba` packages (`sudo apt install libgtsam-dev
-  libgtsam-unstable-dev` on Ubuntu 22.04; CI uses these)
+  **GTSAM** 4.1 for the `pgo` and `hba` packages (`libgtsam-dev` and
+  `libgtsam-unstable-dev` from the [borglab PPA](https://launchpad.net/~borglab/+archive/ubuntu/gtsam-release-4.1);
+  CI installs them the same way)
 - **Livox ROS Driver 2** — built in a separate workspace (e.g. `~/livox_ws`)
 - **Python ≥ 3.8** with `PyQt5`, `numpy`, `open3d`, `scikit-learn`
 - **PyTorch ≥ 1.12** with CUDA (for `lidar_semantic` — CPU fallback available)

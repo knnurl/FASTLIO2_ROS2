@@ -14,15 +14,15 @@ TF chain produced:
   odom_lidar → <velodyne_frame>  (KISS-ICP)
 
 Prerequisites — source BOTH workspaces:
-  source /home/local/ISDADS/ses634/ros2_ws/install/setup.bash
-  source /home/local/ISDADS/ses634/fastlio2_ws/install/setup.bash
+  source ~/ros2_ws/install/setup.bash
+  source ~/fastlio2_ws/install/setup.bash
 
 Launch:
   ros2 launch fastlio2_bringup localization_spot_full.launch.py
 
 Custom map:
   ros2 launch fastlio2_bringup localization_spot_full.launch.py \
-    map_path:=/home/local/ISDADS/ses634/fastlio2_ws/maps/map_spot.pcd
+    map_path:=$HOME/fastlio2_ws/maps/map_spot.pcd
 
 Skip people filter:
   ros2 launch fastlio2_bringup localization_spot_full.launch.py use_people_filter:=false

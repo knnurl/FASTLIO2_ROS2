@@ -12,8 +12,8 @@ Because KISS-ICP builds its local_map from its input, filtering before KISS-ICP
 means the saved PCD is already people-free — no post-processing needed.
 
 Prerequisites — source BOTH workspaces:
-  source /home/local/ISDADS/ses634/ros2_ws/install/setup.bash
-  source /home/local/ISDADS/ses634/fastlio2_ws/install/setup.bash
+  source ~/ros2_ws/install/setup.bash
+  source ~/fastlio2_ws/install/setup.bash
 
 Launch:
   ros2 launch fastlio2_bringup mapping_spot.launch.py
@@ -23,7 +23,7 @@ Skip people filter:
 
 Save map when done:
   ros2 service call /kiss/save_map interface/srv/SaveMaps \\
-      "{file_path: '/home/local/ISDADS/ses634/fastlio2_ws/maps/map_spot.pcd', save_patches: false}"
+      "{file_path: '$HOME/fastlio2_ws/maps/map_spot.pcd', save_patches: false}"
 """
 import launch
 import launch_ros.actions

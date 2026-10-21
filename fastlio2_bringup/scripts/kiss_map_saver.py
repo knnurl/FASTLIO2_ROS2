@@ -5,8 +5,8 @@ Subscribes to /kiss/local_map and saves the latest cloud to PCD on service call.
 Exposes /kiss/save_map (interface/srv/SaveMaps) — same interface as fastlio2.
 
 Prerequisites:
-    source /home/local/ISDADS/ses634/ros2_ws/install/setup.bash
-    source /home/local/ISDADS/ses634/fastlio2_ws/install/setup.bash
+    source ~/ros2_ws/install/setup.bash
+    source ~/fastlio2_ws/install/setup.bash
 
 Run standalone:
     ros2 run fastlio2_bringup kiss_map_saver.py
@@ -126,7 +126,7 @@ class KissMapSaver(Node):
             return response
 
         path = request.file_path.strip() or \
-               '/home/local/ISDADS/ses634/fastlio2_ws/maps/map_spot_neric.pcd'
+               os.path.expanduser('~/fastlio2_ws/maps/map_spot_neric.pcd')
 
         # Rename existing file with timestamp (matches fastlio2 behaviour)
         p = Path(path)

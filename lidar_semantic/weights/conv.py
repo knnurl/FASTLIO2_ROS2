@@ -1,7 +1,10 @@
+import os
 import torch
 
-ckpt_path = '/home/local/ISDADS/ses634/fastlio2_ws/src/lidar_semantic/weights/semantickitti_tsunghan.tar'
-out_path = '/home/local/ISDADS/ses634/fastlio2_ws/src/lidar_semantic/weights/semantickitti_tsunghan_1d.tar'
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+ckpt_path = os.path.join(HERE, 'semantickitti_tsunghan.tar')
+out_path = os.path.join(HERE, 'semantickitti_tsunghan_1d.tar')
 
 print(f"Loading weights from {ckpt_path}...")
 ckpt = torch.load(ckpt_path, map_location='cpu')

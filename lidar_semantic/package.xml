@@ -8,7 +8,7 @@
     Classifies points into SemanticKITTI categories (person, ground,
     vegetation, building, etc.) in a background thread.
   </description>
-  <maintainer email="ses634@example.com">ses634</maintainer>
+  <maintainer email="kaan549@gmail.com">Kaan Ural</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>

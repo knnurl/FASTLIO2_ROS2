@@ -3,7 +3,7 @@
   <name>fastlio2_bringup</name>
   <version>0.1.0</version>
   <description>Launch files for FASTLIO2: mapping and localization modes</description>
-  <maintainer email="user@todo.todo">user</maintainer>
+  <maintainer email="kaan549@gmail.com">Kaan Ural</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

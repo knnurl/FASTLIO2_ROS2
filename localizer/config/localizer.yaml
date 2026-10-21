@@ -40,7 +40,7 @@ localizer_mode: global
 
 # Path to the pre-saved PCD map file (used in global mode)
 # Set this to your map file path before running in global/localization mode
-map_path: /home/local/ISDADS/ses634/fastlio2_ws/maps/map.pcd
+map_path: ~/fastlio2_ws/maps/map.pcd
 
 # ICP failure patience before re-triggering global search
 # max_failures = lost_patience_sec * update_hz (e.g. 5.0 * 2.0 = 10 consecutive failures)

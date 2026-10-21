@@ -8,15 +8,15 @@ find the robot's starting pose, then switches to continuous ICP tracking.
 No initial pose hint is required.
 
 Prerequisites — source ALL workspaces before launching:
-  source /home/local/ISDADS/ses634/livox_ws/install/setup.bash
-  source /home/local/ISDADS/ses634/fastlio2_ws/install/setup.bash
+  source ~/livox_ws/install/setup.bash
+  source ~/fastlio2_ws/install/setup.bash
 
 Usage:
   ros2 launch fastlio2_bringup localization.launch.py
 
 Custom map:
   ros2 launch fastlio2_bringup localization.launch.py \
-    map_path:=/home/local/ISDADS/ses634/fastlio2_ws/maps/my_map.pcd
+    map_path:=$HOME/fastlio2_ws/maps/my_map.pcd
 
 To keep the saved pose for warm-start (skip global search):
   ros2 launch fastlio2_bringup localization.launch.py force_global_search:=false

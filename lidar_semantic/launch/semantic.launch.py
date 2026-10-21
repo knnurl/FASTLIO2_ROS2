@@ -13,6 +13,8 @@ Usage:
     ros2 launch lidar_semantic semantic.launch.py model_path:=/path/to/weights.tar device:=cuda
 """
 
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -33,7 +35,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'model_path',
-            default_value='/home/local/ISDADS/ses634/fastlio2_ws/src/lidar_semantic/weights/semantickitti_tsunghan_1d.tar',
+            default_value=os.path.expanduser('~/fastlio2_ws/src/lidar_semantic/weights/semantickitti_tsunghan_1d.tar'),
             description='Path to pretrained RandLA-Net checkpoint (.pth/.tar)',
         ),
         DeclareLaunchArgument(

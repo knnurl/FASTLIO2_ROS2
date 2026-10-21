@@ -4,8 +4,8 @@ mapping_full.launch.py
 Full mapping stack: Livox MID360 driver + FASTLIO2 LIO + RViz.
 
 Prerequisites — source BOTH workspaces before launching:
-  source /home/local/ISDADS/ses634/livox_ws/install/setup.bash
-  source /home/local/ISDADS/ses634/fastlio2_ws/install/setup.bash
+  source ~/livox_ws/install/setup.bash
+  source ~/fastlio2_ws/install/setup.bash
 
 Launch:
   ros2 launch fastlio2_bringup mapping_full.launch.py
@@ -17,7 +17,7 @@ Optional overrides:
 
 After mapping, save the map:
   ros2 service call /fastlio2/save_map interface/srv/SaveMaps \
-      "{file_path: '/home/local/ISDADS/ses634/fastlio2_ws/maps/map.pcd', save_patches: false}"
+      "{file_path: '$HOME/fastlio2_ws/maps/map.pcd', save_patches: false}"
 """
 import os
 import launch

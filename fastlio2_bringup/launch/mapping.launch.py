@@ -5,7 +5,7 @@ Run FASTLIO2 in mapping mode: LIO odometry only.
 After mapping, call the SaveMap service to dump the map to PCD:
 
   ros2 service call /fastlio2/save_map interface/srv/SaveMaps \
-      "{file_path: '/home/local/ISDADS/ses634/fastlio2_ws/maps/map.pcd', save_patches: false}"
+      "{file_path: '$HOME/fastlio2_ws/maps/map.pcd', save_patches: false}"
 """
 import launch
 import launch_ros.actions

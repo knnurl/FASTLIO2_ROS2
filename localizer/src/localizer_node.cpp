@@ -4,6 +4,7 @@
 #include <future>
 #include <fstream>
 #include <filesystem>
+#include <cstdlib>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -284,6 +285,11 @@ public:
         this->get_parameter<std::string>("map_path", param_map_path);
         if (!param_map_path.empty())
             m_config.map_path = param_map_path;
+
+        // Allow a home-relative map path ("~/fastlio2_ws/maps/map.pcd").
+        if (m_config.map_path.rfind("~/", 0) == 0)
+            if (const char *home = std::getenv("HOME"))
+                m_config.map_path = std::string(home) + m_config.map_path.substr(1);
 
         if (config["lost_thresh"])
             m_config.lost_thresh = config["lost_thresh"].as<double>();

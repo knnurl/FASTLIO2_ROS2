@@ -12,6 +12,7 @@ thread, and publishes:
 Designed to run alongside the FastLIO2 + DBSCAN people filter stack.
 """
 
+import os
 import threading
 import struct
 import numpy as np
@@ -166,7 +167,7 @@ class RandLANetNode(Node):
         self.declare_parameter('person_cluster_radius', 0.8)
 
         self._input_topic   = self.get_parameter('input_topic').value
-        self._model_path    = self.get_parameter('model_path').value
+        self._model_path    = os.path.expanduser(self.get_parameter('model_path').value)
         self._device_str    = self.get_parameter('device').value
         self._num_points    = self.get_parameter('num_points').value
         self._num_neighbors = self.get_parameter('num_neighbors').value

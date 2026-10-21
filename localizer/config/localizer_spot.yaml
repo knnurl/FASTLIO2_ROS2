@@ -40,7 +40,7 @@ icp_recovery_corr_scale: 1.5
 
 # ── Global localization (NDT grid search + ICP) ───────────────────────────────
 localizer_mode: global
-map_path: /home/local/ISDADS/ses634/fastlio2_ws/maps/map_spot.pcd
+map_path: ~/fastlio2_ws/maps/map_spot.pcd
 
 lost_thresh:       1.5
 lost_patience_sec: 5.0

@@ -465,7 +465,7 @@ class MainWindow(QMainWindow):
         lbl_map = QLabel("Map path")
         lbl_map.setStyleSheet(f"color: {C['subtext0']}; font-size: 12px;")
         lbl_map.setFixedWidth(68)
-        self._map_edit = QLineEdit("/home/local/ISDADS/ses634/fastlio2_ws/maps/map1.pcd")
+        self._map_edit = QLineEdit(os.path.expanduser("~/fastlio2_ws/maps/map1.pcd"))
         self._map_edit.setPlaceholderText("Path to .pcd map file…")
         self._browse_btn = QPushButton("Browse…")
         self._browse_btn.setFixedWidth(82)

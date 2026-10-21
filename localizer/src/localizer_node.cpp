@@ -21,6 +21,7 @@
 #include "localizers/commons.h"
 #include "localizers/icp_localizer.h"
 #include "localizers/global_localizer.h"
+#include "localizer_fsm.h"
 #include "interface/srv/relocalize.hpp"
 #include "interface/srv/is_valid.hpp"
 #include "interface/srv/global_relocalize.hpp"
@@ -729,16 +730,17 @@ public:
                     std::lock_guard<std::mutex> lock(m_state.mutex);
                     failures = ++m_state.consecutive_icp_failures;
                 }
-                int max_failures = static_cast<int>(m_config.lost_patience_sec * m_config.update_hz);
-                if (max_failures < 1) max_failures = 1;
+                const int max_failures = localizer_fsm::maxIcpFailures(
+                    m_config.lost_patience_sec, m_config.update_hz);
                 RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                     "ICP failure %d/%d", failures, max_failures);
+                const localizer_fsm::IcpFailureDecision decision = localizer_fsm::onIcpFailure(
+                    failures, max_failures, m_lio_dead_reckoning.load());
 
                 // ── Intermediate recovery: widen correspondence distances at the
                 //    halfway point so ICP can "reach" further before we give up
                 //    and trigger a full global search.
-                int half_failures = std::max(1, max_failures / 2);
-                if (failures == half_failures)
+                if (decision.widen_correspondence)
                 {
                     double scale = m_icp_config.recovery_corr_scale;
                     m_icp_localizer->setCorrespondenceDists(
@@ -753,7 +755,7 @@ public:
                         m_icp_config.refine_max_corr_dist * scale);
                 }
 
-                if (failures >= max_failures)
+                if (decision.give_up)
                 {
                     // Restore configured distances before triggering search
                     m_icp_localizer->setCorrespondenceDists(
@@ -764,7 +766,7 @@ public:
                         m_state.consecutive_icp_failures = 0;
                     }
 
-                    if (m_lio_dead_reckoning.load())
+                    if (!decision.start_search)
                     {
                         // Already tried global search and it failed — robot is
                         // still in unmapped territory.  Keep dead-reckoning;
@@ -827,8 +829,14 @@ public:
                 return; // a service call already re-localized us meanwhile
         }
 
-        if (m_global_search_result.has_value())
+        bool had_pose = false;
         {
+            std::lock_guard<std::mutex> lock(m_state.mutex);
+            had_pose = m_state.localize_success;
+        }
+        switch (localizer_fsm::searchOutcome(m_global_search_result.has_value(), had_pose))
+        {
+        case localizer_fsm::SearchOutcome::TRACK:
             {
                 std::lock_guard<std::mutex> lock(m_state.mutex);
                 // Use the snapshot odometry from when the search started so
@@ -843,15 +851,8 @@ public:
             m_lio_dead_reckoning.store(false);
             RCLCPP_INFO(this->get_logger(), "Global localization succeeded! Switching to ICP tracking.");
             return;
-        }
 
-        bool had_pose = false;
-        {
-            std::lock_guard<std::mutex> lock(m_state.mutex);
-            had_pose = m_state.localize_success;
-        }
-        if (had_pose)
-        {
+        case localizer_fsm::SearchOutcome::DEAD_RECKON:
             // Robot HAD a good pose before — likely moved into unmapped
             // territory.  Hold LIO dead-reckoning rather than retrying (which
             // causes the IDLE→SEARCH→FAIL spin that glitches the position).
@@ -866,8 +867,9 @@ public:
                 m_state.consecutive_icp_failures = 0;
             }
             m_lio_dead_reckoning.store(true);
-        }
-        else
+            return;
+
+        case localizer_fsm::SearchOutcome::RETRY:
         {
             // Robot has NEVER localized — dead-reckoning from identity would
             // be meaningless.  Keep retrying.
@@ -875,6 +877,8 @@ public:
                 "Global search failed. Retrying initial localization...");
             std::lock_guard<std::mutex> lock(m_state.mutex);
             m_state.localizer_state = LocalizerState::IDLE;
+            return;
+        }
         }
     }
 

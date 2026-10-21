@@ -62,6 +62,10 @@ if(BUILD_TESTING)
   # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_localizer_fsm test/test_localizer_fsm.cpp)
+  target_include_directories(test_localizer_fsm PRIVATE src)
 endif()
 
 ament_package()

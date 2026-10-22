@@ -490,9 +490,9 @@ and per-class confidence threshold.
 
 [![build-and-test](https://github.com/knnurl/FASTLIO2_ROS2/actions/workflows/build.yml/badge.svg)](https://github.com/knnurl/FASTLIO2_ROS2/actions/workflows/build.yml)
 
-The stack has been run on a Livox MID360 indoors and on a Boston Dynamics Spot with a
-Velodyne VLP-16. CI builds every package on ROS 2 Humble (Ubuntu 22.04) and runs the
-unit tests:
+The target platform is an autonomous drone with a Livox MID360. The repo also carries
+configs for a Velodyne VLP-16 (`lidar_type: 1`, the `*_spot` files). CI builds every
+package on ROS 2 Humble (Ubuntu 22.04) and runs the unit tests:
 
 | Test | Covers |
 |------|--------|

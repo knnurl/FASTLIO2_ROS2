@@ -7,6 +7,8 @@ This fork extends the upstream project with a full localization pipeline, a real
 filter, semantic point-cloud labelling, and a GUI-based launch system, for indoor
 LiDAR-inertial mapping and localization with a Livox MID360 sensor. It is research
 code; see [Status and Testing](#status-and-testing) for what is checked automatically.
+The plan, built around the [MappingUAV](https://github.com/knnurl/MappingUAV) drone, is in
+[ROADMAP.md](ROADMAP.md).
 
 ---
 

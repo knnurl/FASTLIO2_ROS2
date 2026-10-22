@@ -85,3 +85,19 @@ def test_offset_jumps():
 def test_parse_status():
     assert metrics.parse_status('mode=GLOBAL state=TRACKING dead_reckoning=1 mapping=0') == ('TRACKING', True)
     assert metrics.parse_status('mode=ICP state=IDLE dead_reckoning=0') == ('IDLE', False)
+
+
+def test_gate2_components():
+    t = np.arange(4) * 1.0
+    p = np.array([[0, 0, 1.0], [1, 0, 1.2], [0, 1, 0.9], [0.03, 0.04, 1.02]])
+    m = metrics.trajectory_metrics(t, p)
+    assert m['xy_gap_m'] == pytest.approx(0.05)
+    assert m['z_gap_m'] == pytest.approx(0.02)
+    assert m['z_max_dev_m'] == pytest.approx(0.2)
+
+
+def test_resource_summary():
+    r = metrics.resource_summary([(50.0, 100.0), (150.0, 120.0), (100.0, 110.0)])
+    assert r['cpu_mean_pct'] == pytest.approx(100.0)
+    assert r['rss_max_mb'] == 120.0
+    assert metrics.resource_summary([]) == {'samples': 0}

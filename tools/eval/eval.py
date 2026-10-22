@@ -54,7 +54,7 @@ def stop(proc):
 class Recorder:
     """Records LIO odometry, localizer status and the map->local offset to CSV."""
 
-    def __init__(self, out, map_frame):
+    def __init__(self, out, map_frame, odom_topic):
         import rclpy
         from nav_msgs.msg import Odometry
         from std_msgs.msg import String
@@ -68,7 +68,7 @@ class Recorder:
         self.w['status'].writerow(['t', 'status'])
         self.w['offset'].writerow(['t', 'x', 'y', 'z'])
         self.map_frame = map_frame
-        self.node.create_subscription(Odometry, '/fastlio2/lio_odom', self.odom, 100)
+        self.node.create_subscription(Odometry, odom_topic, self.odom, 100)
         self.node.create_subscription(String, '/localizer/localizer_status', self.status, 10)
         self.node.create_subscription(TFMessage, '/tf', self.tf, 100)
         self.thread = threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True)
@@ -116,14 +116,65 @@ def compute(out, with_localizer):
     return result
 
 
+class ResourceSampler:
+    """Samples CPU (% of one core) and RSS of a process and its children."""
+
+    def __init__(self, proc, period=0.5):
+        import psutil
+        self.psutil, self.root = psutil, psutil.Process(proc.pid)
+        self.samples, self.period, self.stop_flag = [], period, threading.Event()
+        self.thread = threading.Thread(target=self.loop, daemon=True)
+        self.thread.start()
+
+    def tree(self):
+        """The process and its children, reusing Process objects: cpu_percent()
+        measures since the previous call on the same object (a new one reads 0)."""
+        try:
+            procs = [self.root] + self.root.children(recursive=True)
+        except self.psutil.Error:
+            return []
+        for p in procs:
+            if p.pid not in self.known:
+                self.known[p.pid] = p
+                p.cpu_percent(None)             # prime; counts from the next sample
+        return [self.known[p.pid] for p in procs]
+
+    def loop(self):
+        self.known = {}
+        self.tree()
+        while not self.stop_flag.wait(self.period):
+            cpu = rss = 0.0
+            for p in self.tree():
+                try:
+                    cpu += p.cpu_percent(None)
+                    rss += p.memory_info().rss / 1e6
+                except self.psutil.Error:
+                    pass
+            self.samples.append((cpu, rss))
+
+    def close(self):
+        self.stop_flag.set()
+        self.thread.join(timeout=2)
+        return metrics.resource_summary(self.samples)
+
+
 def run(args):
     isolate(args.domain)
     import yaml
     out = Path(args.out).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
-    lio_cfg = args.lio_config or share('fastlio2', 'config', 'lio.yaml')
-    procs = [start(['ros2', 'run', 'fastlio2', 'lio_node', '--ros-args', '-r', '__ns:=/fastlio2',
-                    '-p', f'config_path:={lio_cfg}'], out / 'lio.log')]
+    if args.lio == 'upstream':
+        if args.map or args.save_map:
+            sys.exit('--map and --save-map need --lio fork (upstream FAST-LIO has no localizer or save service)')
+        lio_cfg = args.lio_config or share('fast_lio', 'config', 'mid360.yaml')
+        lio_cmd = ['ros2', 'run', 'fast_lio', 'fastlio_mapping', '--ros-args', '--params-file', lio_cfg]
+        odom_topic = '/Odometry'
+    else:
+        lio_cfg = args.lio_config or share('fastlio2', 'config', 'lio.yaml')
+        lio_cmd = ['ros2', 'run', 'fastlio2', 'lio_node', '--ros-args', '-r', '__ns:=/fastlio2',
+                   '-p', f'config_path:={lio_cfg}']
+        odom_topic = '/fastlio2/lio_odom'
+    procs = [start(lio_cmd, out / 'lio.log')]
     map_frame = 'map'
     if args.map:
         cfg = yaml.safe_load(open(args.localizer_config or share('localizer', 'config', 'localizer.yaml')))
@@ -134,11 +185,14 @@ def run(args):
         map_frame = cfg.get('map_frame', 'map')
         procs.append(start(['ros2', 'run', 'localizer', 'localizer_node', '--ros-args', '-r', '__ns:=/localizer',
                             '-p', f'config_path:={out / "localizer.yaml"}'], out / 'localizer.log'))
-    rec = Recorder(out, map_frame)
+    rec = Recorder(out, map_frame, odom_topic)
+    resources, sampler = {'samples': 0}, None
     try:
         time.sleep(args.warmup)
+        sampler = ResourceSampler(procs[0])     # during playback only
         subprocess.run(['ros2', 'bag', 'play', str(Path(args.bag).expanduser()), '--rate', str(args.rate)],
                        stdout=open(out / 'play.log', 'w'), stderr=subprocess.STDOUT, check=True)
+        resources, sampler = sampler.close(), None
         time.sleep(3.0)
         if args.save_map:
             path = Path(args.save_map).expanduser().resolve()
@@ -146,10 +200,13 @@ def run(args):
                             f"{{file_path: '{path}', save_patches: false}}"],
                            stdout=open(out / 'save_map.log', 'w'), stderr=subprocess.STDOUT, timeout=60)
     finally:
+        if sampler:
+            sampler.close()
         for p in procs:
             stop(p)
         rec.close()
     result = compute(out, bool(args.map))
+    result['lio'] = {'stack': args.lio, 'config': str(lio_cfg), 'resources': resources}
     result['bag'] = str(Path(args.bag).expanduser().resolve())
     json.dump(result, open(out / 'metrics.json', 'w'), indent=2)
     print(json.dumps(result, indent=2))
@@ -168,7 +225,9 @@ def main():
     r = sub.add_parser('run', help='replay a recording and measure it')
     r.add_argument('--bag', required=True)
     r.add_argument('--out', required=True)
-    r.add_argument('--map', help='PCD map; also runs the localizer in global mode')
+    r.add_argument('--lio', choices=('fork', 'upstream'), default='fork',
+                   help="fork: this repo's lio_node; upstream: hku-mars FAST_LIO (as pinned by MappingUAV)")
+    r.add_argument('--map', help='PCD map; also runs the localizer in global mode (fork only)')
     r.add_argument('--lio-config')
     r.add_argument('--localizer-config')
     r.add_argument('--save-map', help='save the LIO map to this PCD after playback')

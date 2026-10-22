@@ -16,7 +16,8 @@ def trajectory_metrics(t, p):
     p = np.asarray(p, dtype=float)
     if len(p) < 2:
         return {'poses': int(len(p)), 'duration_s': 0.0, 'path_m': 0.0,
-                'max_from_start_m': 0.0, 'end_start_gap_m': 0.0}
+                'max_from_start_m': 0.0, 'end_start_gap_m': 0.0,
+                'xy_gap_m': 0.0, 'z_gap_m': 0.0, 'z_max_dev_m': 0.0}
     steps = np.linalg.norm(np.diff(p, axis=0), axis=1)
     from_start = np.linalg.norm(p - p[0], axis=1)
     return {
@@ -25,7 +26,22 @@ def trajectory_metrics(t, p):
         'path_m': float(steps.sum()),
         'max_from_start_m': float(from_start.max()),
         'end_start_gap_m': float(from_start[-1]),
+        # Gate 2 (MappingUAV): return-to-start < 5 cm, no z drift over 5 min.
+        'xy_gap_m': float(np.linalg.norm(p[-1, :2] - p[0, :2])),
+        'z_gap_m': float(p[-1, 2] - p[0, 2]),
+        'z_max_dev_m': float(np.abs(p[:, 2] - p[0, 2]).max()),
     }
+
+
+def resource_summary(samples):
+    """samples: (cpu_percent, rss_mb) pairs taken while the LIO node ran.
+    cpu_percent is per core (100 = one full core), as top shows it."""
+    if not samples:
+        return {'samples': 0}
+    cpu = np.array([s[0] for s in samples], dtype=float)
+    rss = np.array([s[1] for s in samples], dtype=float)
+    return {'samples': int(len(samples)), 'cpu_mean_pct': float(cpu.mean()),
+            'cpu_p95_pct': float(np.percentile(cpu, 95)), 'rss_max_mb': float(rss.max())}
 
 
 def compare_trajectories(ta, pa, qa, tb, pb, qb, decimals=4):

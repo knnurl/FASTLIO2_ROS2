@@ -18,7 +18,11 @@ apt-get update -qq
 apt-get install -y -qq git cmake build-essential python3-rosdep \
     software-properties-common ros-humble-sophus > /dev/null
 # GTSAM 4.1 for pgo/hba, from the borglab PPA (as on the development machine).
-add-apt-repository -y ppa:borglab/gtsam-release-4.1 > /dev/null
+# add-apt-repository queries the Launchpad API, which also fails now and then.
+for attempt in 1 2 3 4 5; do
+    add-apt-repository -y ppa:borglab/gtsam-release-4.1 > /dev/null && break
+    echo "add-apt-repository failed (attempt $attempt), retrying"; sleep 15
+done
 apt-get update -qq
 apt-get install -y -qq libgtsam-dev libgtsam-unstable-dev > /dev/null
 

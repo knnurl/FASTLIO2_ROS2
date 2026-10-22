@@ -507,6 +507,10 @@ colcon test --packages-select fastlio2 localizer lidar_people_filter --ctest-arg
 colcon test-result --verbose
 ```
 
+[`tools/eval/`](tools/eval/README.md) replays a recorded bag through LIO and the localizer
+and reports drift, relocalization events and run-to-run differences; use it to check a change
+before trying it on the robot.
+
 The packages keep upstream's ament linters enabled, and the code does not pass them
 yet, so `colcon test` without `-LE linter` also reports lint failures.
 

@@ -62,3 +62,6 @@ colcon build --event-handlers console_direct- \
 colcon test --packages-select fastlio2 localizer lidar_people_filter \
     --event-handlers console_direct- --ctest-args -LE linter
 colcon test-result --verbose
+
+# Replay-evaluation metrics (plain Python, no ROS).
+python3 -m pytest -q "$WS/src/FASTLIO2_ROS2/tools/eval"

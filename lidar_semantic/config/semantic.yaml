@@ -7,10 +7,12 @@ randlanet_node:
     input_topic: /fastlio2/body_cloud  # _filtered
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    # Path to pretrained checkpoint (.pth or .tar).
-    # Run scripts/download_weights.py to get SemanticKITTI weights.
+    # Path to pretrained checkpoint (.pth or .tar); "~/" is expanded.
+    # semantic.launch.py passes the installed SemanticKITTI weights
+    # (share/lidar_semantic/weights/semantickitti_tsunghan_1d.tar) unless
+    # model_path:=... is given. Run scripts/download_weights.py to fetch others.
     # Leave empty to run with random weights (useful for pipeline testing).
-    model_path: "~/fastlio2_ws/src/lidar_semantic/weights/semantickitti_tsunghan_1d.tar"
+    model_path: ""
 
     # cpu or cuda (requires PyTorch with CUDA support)
     device: cuda

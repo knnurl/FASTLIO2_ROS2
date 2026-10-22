@@ -11,6 +11,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/semantic.launch.py']),
         ('share/' + package_name + '/config', ['config/semantic.yaml']),
+        ('share/' + package_name + '/weights', ['weights/semantickitti_tsunghan_1d.tar']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

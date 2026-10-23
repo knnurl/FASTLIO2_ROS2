@@ -1,0 +1,37 @@
+# Fork lio_node config matched to MappingUAV's upstream FAST-LIO drone config
+# (colcon_ws/src/drone_bringup/config/fast_lio_mid360_x500.yaml, upstream a4743b09),
+# for the A3 comparison: same downsampling, iterations, range, noise and extrinsic.
+# Not in either repo. Created 2026-10-23.
+imu_topic: /livox/imu
+lidar_topic: /livox/lidar
+acc_scale: 10.0              # Livox IMU reports g (upstream rescales internally too)
+body_frame: body
+world_frame: camera_init     # MappingUAV / WP-F 2.1 name for the LIO world frame
+print_time_cost: false
+
+lidar_filter_num: 3          # upstream point_filter_num 3
+lidar_min_range: 0.5         # upstream blind 0.5
+lidar_max_range: 100.0       # upstream has no max range for Livox; beyond the MID360's 70 m
+scan_resolution: 0.5         # upstream filter_size_surf 0.5
+map_resolution: 0.5          # upstream filter_size_map 0.5
+
+cube_len: 1000               # upstream cube_side_length 1000
+det_range: 40                # upstream det_range 40 (Orin memory)
+move_thresh: 1.5             # upstream MOV_THRESHOLD 1.5 (hard-coded there)
+
+na: 0.1                      # upstream acc_cov 0.1  (both used directly as Q)
+ng: 0.1                      # upstream gyr_cov 0.1
+nba: 0.0001                  # upstream b_acc_cov
+nbg: 0.0001                  # upstream b_gyr_cov
+
+imu_init_num: 20             # upstream MAX_INI_COUNT is 10, hard-coded: not matchable
+near_search_num: 5           # upstream NUM_MATCH_POINTS 5
+ieskf_max_iter: 3            # upstream max_iteration 3
+
+gravity_align: true
+esti_il: false               # upstream extrinsic_est_en false
+
+r_il: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+t_il: [-0.011, -0.02329, 0.04412]   # same Mid-360 extrinsic as upstream
+
+lidar_cov_inv: 1000.0        # upstream point-to-plane LASER_POINT_COV 0.001

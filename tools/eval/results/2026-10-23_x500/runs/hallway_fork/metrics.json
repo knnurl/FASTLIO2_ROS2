@@ -1,0 +1,23 @@
+{
+  "trajectory": {
+    "poses": 2229,
+    "duration_s": 222.8006148338318,
+    "path_m": 94.95023974929879,
+    "max_from_start_m": 20.948529405000045,
+    "end_start_gap_m": 0.047286333381585964,
+    "xy_gap_m": 0.026677209879208682,
+    "z_gap_m": 0.03904258953675002,
+    "z_max_dev_m": 1.809121897869522
+  },
+  "lio": {
+    "stack": "fork",
+    "config": "/home/neric/fastlio2_ws/configs/lio_x500_matched.yaml",
+    "resources": {
+      "samples": 425,
+      "cpu_mean_pct": 124.45694117647058,
+      "cpu_p95_pct": 160.59999999999997,
+      "rss_max_mb": 442.40486400000003
+    }
+  },
+  "bag": "/home/neric/lidar_rec/2026-10-23_x500_hallway"
+}

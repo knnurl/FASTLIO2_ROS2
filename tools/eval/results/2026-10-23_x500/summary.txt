@@ -1,11 +1,11 @@
-bag      stack     gap cm  xy cm   z cm  zmax cm  path m  poses   cpu%  cpu95  rss MB
-still5   upstream    10.6    8.7   -6.0      6.4     8.5   3043     27     32     178
-still5   fork         7.2    6.1   -4.0      4.2     8.1   3044     49     65     433
-loop5    upstream  (missing)
-loop5    fork      (missing)
-height   upstream  (missing)
-height   fork        11.6    3.5  -11.0    158.0    14.1   1507     46     64     412
-yaw      upstream  (missing)
-yaw      fork      (missing)
-hallway  upstream  (missing)
-hallway  fork      (missing)
+bag      stack    settled cm    xy     z  gap cm  zmax cm  path m  poses  cpu%  cpu95  rss MB
+still5   upstream        3.6   2.9  -2.1    10.6      6.4     8.5   3043    27     32     178
+still5   fork            2.8   1.8  -2.2     7.2      4.2     8.1   3044    49     65     433
+loop5    upstream       13.5  12.6  -4.9    16.5     44.8   102.8   2817    28     32     181
+loop5    fork           10.0   9.5  -3.1    13.3     29.4   103.2   2818    63     85     447
+height   upstream        5.7   1.7  -5.4    12.8    159.2    14.2   1507    26     30     178
+height   fork            6.2   0.3  -6.2    11.6    158.0    14.1   1507    46     64     412
+yaw      upstream        9.5   8.2  -4.8    11.8     40.5    29.6   4274    29     32     181
+yaw      fork            8.9   8.9  -0.4    10.3     47.5    30.9   4275    62     85     436
+hallway  upstream        4.2   2.5   3.4     5.0    181.3    95.0   2228    61     70     183
+hallway  fork            3.8   2.3   3.0     4.7    180.9    95.0   2229   124    161     442

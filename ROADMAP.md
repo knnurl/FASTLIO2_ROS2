@@ -11,7 +11,7 @@ are, in order:
 **Parked:** the people filter (and its world-frame tracker fix), RandLA-Net semantic labelling,
 the Spot / VLP-16 configs, and the closed-loop health prototype on `experimental/health-prototype`.
 
-Status as of 2026-10-23.
+Status as of 2026-10-26.
 
 ## Known facts
 
@@ -22,8 +22,10 @@ Status as of 2026-10-23.
   `lio_health_guard` can only watch `/Odometry` for rate, jumps and NaNs.
 - This fork adds what upstream lacks: global relocalization in a saved map (`localizer`), loop
   closure (`pgo`), map refinement (`hba`), a localizer status topic.
-- The only recordings so far (`~/lidar_rec`, March 2026) are handheld and waved about: roll and
-  pitch up to 80°, under 0.9 m/s, about 1 m of height change. They do not resemble the drone.
+- Drone-mounted recordings exist since 2026-10-23 (A2): MID360 on the X500, props off, carried at
+  hover height, about 23 minutes in five runs, all clean. The bags are not in this repo; results and
+  notes are in `tools/eval/results/2026-10-23_x500/`. The earlier March recordings (`~/lidar_rec`)
+  are handheld and waved about (roll and pitch up to 80°) and do not resemble the drone.
 - Relocalization searches x, y and yaw only; every candidate sits at the map's average height
   (`z_offset_m` is hard-wired to 0, `localizer/src/localizers/global_localizer.cpp:113`). On the March data, a
   relocalization after a loss landed about 3 m from the first fix while the status said `TRACKING`.
@@ -44,21 +46,40 @@ attitude and speed; MappingUAV forbids recording raw `/livox/lidar` in flight. R
 - a long corridor or an open hall (geometry where LiDAR degrades);
 - fast yaw turns.
 
+Recorded 2026-10-23: `still5`, `loop5`, `height` (floor to overhead and back; no stairs), `yaw`,
+`hallway`. Stairs are still to record.
+
 **A3. Decision:** keep upstream FAST-LIO on the drone and use this fork only for B4 and C, or
 switch `px4_odom_bridge` to this fork's `lio_node`. Decided by A2's numbers: gap, height drift,
 CPU and memory on the Orin Nano.
+
+Results in (2026-10-26, `tools/eval/results/2026-10-23_x500/`), decision pending. With the fork
+matched to the drone's upstream config: both stacks tracked all five recordings with no losses; the
+fork's return gap is 0.4 to 3.5 cm smaller on four of five (worse by 0.5 cm on `height`); the fork
+costs about twice the CPU (46 to 63 % of a core against 26 to 29 %, and 124 % against 61 % in the
+hallway) and 2.4 times the memory (~440 MB against ~180 MB, partly its always-on accumulated map).
+Neither recording made either stack degrade, so B1 and B3 still have no failure case to test on.
 
 ## B. Never lose track
 
 **B1. A real health signal.** Publish at scan rate: the share of points matched to planes, the
 residual, and a degeneracy measure from the filter's information matrix (the weakest direction).
-`lio_health_guard` uses it to request a hover before the odometry visibly breaks.
+`lio_health_guard` uses it to request a hover before the odometry visibly breaks. The same signal is
+what MappingUAV's EV sanity guard needs for real drift detection
+(`docs/px4_odom_bridge_ev_guard_spec.md` §9 there).
 
 **B2. Odometry into EKF2 never jumps.** Relocalization and loop-closure corrections move only the
 map frame (`map → odom`), never `/Odometry`. This is a hard rule, checked by a test.
 
-**B3. Degenerate geometry.** Measure corridors and open halls first (A2). EKF2 also fuses the
-HereFlow optical flow and the TF02 rangefinder; check that it holds position when LIO degrades.
+**B3. Degenerate geometry.** Measure corridors and open halls first (A2). The 2026-10-23 hallway did
+not degrade either stack, so a longer, plainer corridor or a large open hall is still needed.
+
+There is no second horizontal source behind LIO at the moment. MappingUAV disabled optical flow in
+EKF2 on 2026-10-13 (`EKF2_OF_CTRL 0`): in an A/B test it caused 28 to 35 cm excursions and a reset
+during motion, most likely because the HereFlow's mounting rotation (`SENS_FLOW_ROT`) was never
+measured. The TF02 rangefinder only aids height, and only low and slow. So when LIO degrades, EKF2
+dead-reckons on the IMU and PX4 falls back to Altitude mode. That makes B1 more urgent. Re-enable flow
+only after measuring `SENS_FLOW_ROT` and repeating the A/B test.
 
 **B4. Relocalization in a saved map** (repeat flights, recovery after a loss):
 
@@ -83,4 +104,4 @@ corrected map where it should.
 
 ## Order
 
-A1 (done) → A2 (a recording session, by the operator) → A3 → B1 and B2 → B3 → C1 to C3 → B4.
+A1 (done) → A2 (recorded 2026-10-23; stairs outstanding) → A3 (results in, decision pending) → B1 and B2 → B3 → C1 to C3 → B4.

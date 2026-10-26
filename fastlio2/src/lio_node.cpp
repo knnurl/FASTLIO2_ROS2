@@ -44,6 +44,13 @@ static T yamlRequired(const YAML::Node &config, const std::string &key)
     }
 }
 
+// Read an optional YAML key; absent means the default. A present key of the wrong type still fails.
+template <typename T>
+static T yamlOptional(const YAML::Node &config, const std::string &key, const T &fallback)
+{
+    return config[key] ? yamlRequired<T>(config, key) : fallback;
+}
+
 struct NodeConfig
 {
     std::string imu_topic = "/livox/imu";
@@ -51,6 +58,13 @@ struct NodeConfig
     std::string body_frame = "body";
     std::string world_frame = "lidar";
     bool print_time_cost = false;
+    // Optional outputs. Off means the work is not done at all (no transform, no accumulation), which
+    // matters on small computers: the accumulated map alone costs ~250 MB. Defaults keep the
+    // previous behaviour. /lio_odom and the TF are always published.
+    bool publish_body_cloud = true;
+    bool publish_world_cloud = true;
+    bool publish_accumulated_map = true;
+    bool publish_path = true;
     // 0 = Livox CustomMsg (default), 1 = standard PointCloud2 (Velodyne, Ouster, etc.)
     int lidar_type = 0;
     // Multiplier applied to IMU linear acceleration to get m/s².
@@ -114,7 +128,8 @@ public:
         m_kf = std::make_shared<IESKF>();
         m_builder = std::make_shared<MapBuilder>(m_builder_config, m_kf);
         m_timer      = this->create_wall_timer(20ms, std::bind(&LIONode::timerCB, this));
-        m_accum_timer = this->create_wall_timer(1000ms, std::bind(&LIONode::publishAccumCloud, this));
+        if (m_node_config.publish_accumulated_map)
+            m_accum_timer = this->create_wall_timer(1000ms, std::bind(&LIONode::publishAccumCloud, this));
 
         // The PCD save is slow (compressed write of the full map); it runs in
         // its own callback group so the MultiThreadedExecutor can keep the
@@ -226,6 +241,10 @@ public:
         m_node_config.body_frame = yamlRequired<std::string>(config, "body_frame");
         m_node_config.world_frame = yamlRequired<std::string>(config, "world_frame");
         m_node_config.print_time_cost = yamlRequired<bool>(config, "print_time_cost");
+        m_node_config.publish_body_cloud = yamlOptional<bool>(config, "publish_body_cloud", true);
+        m_node_config.publish_world_cloud = yamlOptional<bool>(config, "publish_world_cloud", true);
+        m_node_config.publish_accumulated_map = yamlOptional<bool>(config, "publish_accumulated_map", true);
+        m_node_config.publish_path = yamlOptional<bool>(config, "publish_path", true);
         if (config["lidar_type"]) {
             m_node_config.lidar_type = config["lidar_type"].as<int>();
         }
@@ -259,6 +278,8 @@ public:
 
         m_builder_config.imu_init_num = yamlRequired<int>(config, "imu_init_num");
         m_builder_config.near_search_num = yamlRequired<int>(config, "near_search_num");
+        if (m_builder_config.near_search_num < 3 || m_builder_config.near_search_num > kMaxPlanePoints)
+            throw std::runtime_error("near_search_num must be between 3 and " + std::to_string(kMaxPlanePoints));
         m_builder_config.ieskf_max_iter = yamlRequired<int>(config, "ieskf_max_iter");
         m_builder_config.gravity_align = yamlRequired<bool>(config, "gravity_align");
         m_builder_config.esti_il = yamlRequired<bool>(config, "esti_il");
@@ -482,28 +503,40 @@ public:
 
         publishOdometry(m_odom_pub, m_node_config.world_frame, m_node_config.body_frame, m_package.cloud_end_time);
 
-        CloudType::Ptr body_cloud = m_builder->lidar_processor()->transformCloud(m_package.cloud, m_kf->x().r_il, m_kf->x().t_il);
-
-        publishCloud(m_body_cloud_pub, body_cloud, m_node_config.body_frame, m_package.cloud_end_time);
-
-        CloudType::Ptr world_cloud = m_builder->lidar_processor()->transformCloud(m_package.cloud, m_builder->lidar_processor()->r_wl(), m_builder->lidar_processor()->t_wl());
-
-        publishCloud(m_world_cloud_pub, world_cloud, m_node_config.world_frame, m_package.cloud_end_time);
-
-        // Accumulate into the persistent map cloud (published at 1 Hz).
-        // Voxel-filter when the cloud exceeds 2 M points to keep memory and
-        // serialisation time bounded; map_resolution voxels match the ikd-tree.
-        *m_accum_cloud += *world_cloud;
-        m_accum_last_time = m_package.cloud_end_time;
-        if (m_accum_cloud->size() > 2000000)
+        // Clouds are transformed only when something will use them: a subscriber now, or the
+        // accumulated map. The transforms copy the full-resolution scan.
+        if (m_node_config.publish_body_cloud && m_body_cloud_pub->get_subscription_count() > 0)
         {
-            CloudType::Ptr filtered(new CloudType);
-            m_accum_voxel.setInputCloud(m_accum_cloud);
-            m_accum_voxel.filter(*filtered);
-            m_accum_cloud = filtered;
+            CloudType::Ptr body_cloud = m_builder->lidar_processor()->transformCloud(m_package.cloud, m_kf->x().r_il, m_kf->x().t_il);
+            publishCloud(m_body_cloud_pub, body_cloud, m_node_config.body_frame, m_package.cloud_end_time);
         }
 
-        publishPath(m_path_pub, m_node_config.world_frame, m_package.cloud_end_time);
+        const bool world_cloud_wanted = m_node_config.publish_world_cloud && m_world_cloud_pub->get_subscription_count() > 0;
+        if (world_cloud_wanted || m_node_config.publish_accumulated_map)
+        {
+            CloudType::Ptr world_cloud = m_builder->lidar_processor()->transformCloud(m_package.cloud, m_builder->lidar_processor()->r_wl(), m_builder->lidar_processor()->t_wl());
+            if (world_cloud_wanted)
+                publishCloud(m_world_cloud_pub, world_cloud, m_node_config.world_frame, m_package.cloud_end_time);
+
+            if (m_node_config.publish_accumulated_map)
+            {
+                // Accumulate into the persistent map cloud (published at 1 Hz).
+                // Voxel-filter when the cloud exceeds 2 M points to keep memory and
+                // serialisation time bounded; map_resolution voxels match the ikd-tree.
+                *m_accum_cloud += *world_cloud;
+                m_accum_last_time = m_package.cloud_end_time;
+                if (m_accum_cloud->size() > 2000000)
+                {
+                    CloudType::Ptr filtered(new CloudType);
+                    m_accum_voxel.setInputCloud(m_accum_cloud);
+                    m_accum_voxel.filter(*filtered);
+                    m_accum_cloud = filtered;
+                }
+            }
+        }
+
+        if (m_node_config.publish_path)
+            publishPath(m_path_pub, m_node_config.world_frame, m_package.cloud_end_time);
     }
 
     void publishAccumCloud()

@@ -1,0 +1,23 @@
+{
+  "trajectory": {
+    "poses": 2817,
+    "duration_s": 281.6008150577545,
+    "path_m": 102.81264944484568,
+    "max_from_start_m": 5.96407907985743,
+    "end_start_gap_m": 0.15892089417699176,
+    "xy_gap_m": 0.14240343202527525,
+    "z_gap_m": -0.07054865805553939,
+    "z_max_dev_m": 0.4560761290933541
+  },
+  "lio": {
+    "stack": "upstream",
+    "config": "/home/neric/colcon_ws/src/drone_bringup/config/fast_lio_mid360_x500.yaml",
+    "resources": {
+      "samples": 534,
+      "cpu_mean_pct": 28.69494382022472,
+      "cpu_p95_pct": 32.2,
+      "rss_max_mb": 176.4352
+    }
+  },
+  "bag": "/home/neric/lidar_rec/2026-10-23_x500_loop5"
+}

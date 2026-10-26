@@ -53,7 +53,12 @@ Recorded 2026-10-23: `still5`, `loop5`, `height` (floor to overhead and back; no
 switch `px4_odom_bridge` to this fork's `lio_node`. Decided by A2's numbers: gap, height drift,
 CPU and memory on the Orin Nano.
 
-Results in (2026-10-26, `tools/eval/results/2026-10-23_x500/`), decision pending. With the fork
+**Decided 2026-10-26:** upstream stays on the drone for MappingUAV's Gate 4; the fork swaps in after
+it is made lighter and B1 and B2 are built, and the swap re-runs MappingUAV's Gate 2/3 checks on it.
+Lighter is done on branch `lighter-lio` (`tools/eval/results/2026-10-26_lighter/`): about 0.75 times
+upstream's CPU and less memory, with the return gap within -0.5 to +1.1 cm of before.
+
+Results in (2026-10-26, `tools/eval/results/2026-10-23_x500/`). With the fork
 matched to the drone's upstream config: both stacks tracked all five recordings with no losses; the
 fork's return gap is 0.4 to 3.5 cm smaller on four of five (worse by 0.5 cm on `height`); the fork
 costs about twice the CPU (46 to 63 % of a core against 26 to 29 %, and 124 % against 61 % in the
@@ -104,4 +109,4 @@ corrected map where it should.
 
 ## Order
 
-A1 (done) → A2 (recorded 2026-10-23; stairs outstanding) → A3 (results in, decision pending) → B1 and B2 → B3 → C1 to C3 → B4.
+A1 (done) → A2 (recorded 2026-10-23; stairs outstanding) → A3 (decided; lighter done on `lighter-lio`) → B1 and B2 → swap → B3 → C1 to C3 → B4.

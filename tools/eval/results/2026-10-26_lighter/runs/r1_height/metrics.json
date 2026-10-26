@@ -1,0 +1,23 @@
+{
+  "trajectory": {
+    "poses": 1507,
+    "duration_s": 150.60023713111877,
+    "path_m": 14.049828818457225,
+    "max_from_start_m": 1.5852786134477677,
+    "end_start_gap_m": 0.1174242621973764,
+    "xy_gap_m": 0.03881159509905397,
+    "z_gap_m": -0.11082471492616296,
+    "z_max_dev_m": 1.5799091197679573
+  },
+  "lio": {
+    "stack": "fork",
+    "config": "/home/neric/fastlio2_ws/configs/lio_x500_lean.yaml",
+    "resources": {
+      "samples": 287,
+      "cpu_mean_pct": 42.80522648083624,
+      "cpu_p95_pct": 56.039999999999985,
+      "rss_max_mb": 157.77792
+    }
+  },
+  "bag": "/home/neric/lidar_rec/2026-10-23_x500_height"
+}

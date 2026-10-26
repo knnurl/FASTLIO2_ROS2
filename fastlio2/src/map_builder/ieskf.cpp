@@ -85,6 +85,7 @@ void IESKF::update()
     M21D H = M21D::Identity();
     V21D b;
 
+    shared_data.converge = true;
     for (size_t i = 0; i < m_max_iter; i++)
     {
         m_loss_func(m_x, shared_data);
@@ -106,6 +107,9 @@ void IESKF::update()
 
         m_x += delta;
         shared_data.iter_num += 1;
+        // Upstream's per-component limit (FAST-LIO laserMapping: epsi = 0.001 for every state).
+        constexpr double kConvergeLimit = 0.001;
+        shared_data.converge = delta.cwiseAbs().maxCoeff() <= kConvergeLimit;
 
         if (m_stop_func(delta))
             break;

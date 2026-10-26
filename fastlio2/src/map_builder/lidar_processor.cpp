@@ -200,13 +200,16 @@ void LidarProcessor::updateLossFunc(State &state, SharedState &share_data)
         point_world.y = point_world_vec(1);
         point_world.z = point_world_vec(2);
         point_world.intensity = point_body.intensity;
-        std::vector<float> &point_sq_dist = m_nearest_sq_dist[i];
         auto &points_near = m_nearest_points[i];
-        m_ikdtree->Nearest_Search(point_world, m_config.near_search_num, points_near, point_sq_dist);
-        if (points_near.size() >= static_cast<size_t>(m_config.near_search_num) && point_sq_dist[m_config.near_search_num - 1] <= 5)
-            m_point_selected_flag[i] = true;
-        else
-            m_point_selected_flag[i] = false;
+        // New neighbours only when the filter asks for them (first iteration, or after a small
+        // step); otherwise the previous neighbours and selection stand, as in upstream FAST-LIO.
+        if (share_data.converge)
+        {
+            std::vector<float> &point_sq_dist = m_nearest_sq_dist[i];
+            m_ikdtree->Nearest_Search(point_world, m_config.near_search_num, points_near, point_sq_dist);
+            m_point_selected_flag[i] = points_near.size() >= static_cast<size_t>(m_config.near_search_num) &&
+                                       point_sq_dist[m_config.near_search_num - 1] <= 5;
+        }
         if (!m_point_selected_flag[i])
             continue;
 

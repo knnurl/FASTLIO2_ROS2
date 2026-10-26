@@ -22,6 +22,10 @@ public:
     double res = 1e10;
     bool valid = false;
     size_t iter_num = 0;
+    // Search for new nearest neighbours in this iteration? True on the first iteration and after
+    // a small step (every component within kConvergeLimit); after a large step the loss function
+    // reuses the previous neighbours. Upstream FAST-LIO's rule (esekfom::update_iterated_dyn_share).
+    bool converge = true;
 };
 struct Input
 {

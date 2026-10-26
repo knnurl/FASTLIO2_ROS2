@@ -50,5 +50,6 @@ private:
     CloudType::Ptr m_effect_cloud_lidar;
     CloudType::Ptr m_effect_norm_vec;
     std::vector<PointVec> m_nearest_points;
+    std::vector<std::vector<float>> m_nearest_sq_dist;
     pcl::VoxelGrid<PointType> m_scan_filter;
 };

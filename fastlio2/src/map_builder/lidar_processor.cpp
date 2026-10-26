@@ -167,6 +167,17 @@ void LidarProcessor::process(SyncPackage &package)
     {
         pcl::copyPointCloud(*package.cloud, *m_cloud_down_lidar);
     }
+    // Per-point buffers must hold the whole downsampled scan; they were fixed at 10000 points,
+    // and a denser scan wrote past their end. resize() keeps capacity, so this allocates only
+    // when a scan is larger than any before it.
+    const size_t n = m_cloud_down_lidar->size();
+    m_cloud_down_world->resize(n);
+    m_norm_vec->resize(n);
+    m_effect_cloud_lidar->resize(n);
+    m_effect_norm_vec->resize(n);
+    m_nearest_points.resize(n);
+    m_nearest_sq_dist.resize(n);
+    m_point_selected_flag.resize(n, false);
     trimCloudMap();
     m_kf->update();
     incrCloudMap();
@@ -189,7 +200,7 @@ void LidarProcessor::updateLossFunc(State &state, SharedState &share_data)
         point_world.y = point_world_vec(1);
         point_world.z = point_world_vec(2);
         point_world.intensity = point_body.intensity;
-        std::vector<float> point_sq_dist(m_config.near_search_num);
+        std::vector<float> &point_sq_dist = m_nearest_sq_dist[i];
         auto &points_near = m_nearest_points[i];
         m_ikdtree->Nearest_Search(point_world, m_config.near_search_num, points_near, point_sq_dist);
         if (points_near.size() >= static_cast<size_t>(m_config.near_search_num) && point_sq_dist[m_config.near_search_num - 1] <= 5)

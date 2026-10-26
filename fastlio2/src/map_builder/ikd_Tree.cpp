@@ -425,7 +425,7 @@ void KD_TREE<PointType>::Nearest_Search(PointType point, int k_nearest, PointVec
 {
     MANUAL_HEAP q(2 * k_nearest);
     q.clear();
-    vector<float>().swap(Point_Distance);
+    Point_Distance.clear();   // clear(), not swap-with-empty: same result, keeps the caller's storage
     if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node)
     {
         Search(Root_Node, k_nearest, point, q, max_dist);
@@ -447,8 +447,8 @@ void KD_TREE<PointType>::Nearest_Search(PointType point, int k_nearest, PointVec
         pthread_mutex_unlock(&search_flag_mutex);
     }
     int k_found = min(k_nearest, int(q.size()));
-    PointVector().swap(Nearest_Points);
-    vector<float>().swap(Point_Distance);
+    Nearest_Points.clear();
+    Point_Distance.clear();
     for (int i = 0; i < k_found; i++)
     {
         Nearest_Points.insert(Nearest_Points.begin(), q.top().point);

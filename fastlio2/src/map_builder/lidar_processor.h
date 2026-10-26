@@ -2,6 +2,7 @@
 #include "commons.h"
 #include "ieskf.h"
 #include "ikd_Tree.h"
+#include <cstdint>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/common/transforms.h>
 
@@ -45,7 +46,9 @@ private:
     CloudType::Ptr m_cloud_lidar;
     CloudType::Ptr m_cloud_down_lidar;
     CloudType::Ptr m_cloud_down_world;
-    std::vector<bool> m_point_selected_flag;
+    // One byte per point, not std::vector<bool>: the match loop writes these from several OpenMP
+    // threads, and vector<bool> packs neighbouring flags into one word (a data race).
+    std::vector<uint8_t> m_point_selected_flag;
     CloudType::Ptr m_norm_vec;
     CloudType::Ptr m_effect_cloud_lidar;
     CloudType::Ptr m_effect_norm_vec;

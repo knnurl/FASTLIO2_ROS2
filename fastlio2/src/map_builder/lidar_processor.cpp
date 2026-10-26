@@ -10,7 +10,7 @@ LidarProcessor::LidarProcessor(Config &config, std::shared_ptr<IESKF> kf) : m_co
     m_effect_cloud_lidar.reset(new CloudType(10000, 1));
     m_effect_norm_vec.reset(new CloudType(10000, 1));
     m_nearest_points.resize(10000);
-    m_point_selected_flag.resize(10000, false);
+    m_point_selected_flag.resize(10000, 0);
 
     if (m_config.scan_resolution > 0.0)
     {
@@ -177,7 +177,7 @@ void LidarProcessor::process(SyncPackage &package)
     m_effect_norm_vec->resize(n);
     m_nearest_points.resize(n);
     m_nearest_sq_dist.resize(n);
-    m_point_selected_flag.resize(n, false);
+    m_point_selected_flag.resize(n, 0);
     trimCloudMap();
     m_kf->update();
     incrCloudMap();

@@ -1,8 +1,12 @@
 #include "commons.h"
 bool esti_plane(PointVec &points, const double &thresh, V4D &out)
 {
-    Eigen::MatrixXd A(points.size(), 3);
-    Eigen::MatrixXd b(points.size(), 1);
+    // Stack storage (at most kMaxPlanePoints rows): this runs for every point in every
+    // iteration, and heap-allocated MatrixXd made malloc/free a visible share of the CPU.
+    if (points.size() > static_cast<size_t>(kMaxPlanePoints))
+        return false;
+    Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::ColMajor, kMaxPlanePoints, 3> A(points.size(), 3);
+    Eigen::Matrix<double, Eigen::Dynamic, 1, Eigen::ColMajor, kMaxPlanePoints, 1> b(points.size(), 1);
     A.setZero();
     b.setOnes();
     b *= -1.0;

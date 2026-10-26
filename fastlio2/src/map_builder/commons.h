@@ -23,6 +23,9 @@ template <typename T>
 using Vec = std::vector<T>;
 
 
+// Most neighbours a plane is fitted to; near_search_num may not exceed it (checked at start-up).
+constexpr int kMaxPlanePoints = 10;
+
 bool esti_plane(PointVec &points, const double &thresh, V4D &out);
 
 float sq_dist(const PointType &p1, const PointType &p2);

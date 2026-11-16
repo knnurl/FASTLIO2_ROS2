@@ -106,3 +106,22 @@ def parse_status(text):
     """'mode=GLOBAL state=TRACKING dead_reckoning=0 ...' -> (state, dead_reckoning)."""
     fields = dict(kv.split('=', 1) for kv in text.split() if '=' in kv)
     return fields.get('state', ''), fields.get('dead_reckoning', '0') not in ('0', 'false')
+
+
+def odometry_steps(t, p, max_speed_m_s=3.0):
+    """Roadmap B2: scan-to-scan steps of an odometry trajectory.
+
+    A step is a jump when it implies a speed above max_speed_m_s. A drone flying
+    at 1 m/s moves 0.1 m per 10 Hz scan; a relocalization or loop-closure
+    correction leaking into the odometry shows up as decimetres to metres in one.
+    Returns the largest step, the largest implied speed and the jump count.
+    """
+    t = np.asarray(t, dtype=float)
+    p = np.asarray(p, dtype=float)
+    if len(t) < 2:
+        return {'max_step_m': 0.0, 'max_speed_m_s': 0.0, 'jumps': 0, 'max_gap_s': 0.0}
+    dt = np.diff(t)
+    step = np.linalg.norm(np.diff(p, axis=0), axis=1)
+    speed = step / np.maximum(dt, 1e-3)
+    return {'max_step_m': float(step.max()), 'max_speed_m_s': float(speed.max()),
+            'jumps': int((speed > max_speed_m_s).sum()), 'max_gap_s': float(dt.max())}

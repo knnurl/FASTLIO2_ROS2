@@ -2,6 +2,7 @@
 #include "commons.h"
 #include "ieskf.h"
 #include "ikd_Tree.h"
+#include "lio_health.h"
 #include <cstdint>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/common/transforms.h>
@@ -32,6 +33,9 @@ public:
     M3D r_wl() { return m_kf->x().r_wi * m_kf->x().r_il; }
     V3D t_wl() { return m_kf->x().t_wi + m_kf->x().r_wi * m_kf->x().t_il; }
 
+    // Health of the last process() call (roadmap B1).
+    const LioHealth &health() const { return m_health; }
+
     void getMapPoints(PointVec &points)
     {
         if (m_ikdtree && m_ikdtree->Root_Node != nullptr)
@@ -55,4 +59,5 @@ private:
     std::vector<PointVec> m_nearest_points;
     std::vector<std::vector<float>> m_nearest_sq_dist;
     pcl::VoxelGrid<PointType> m_scan_filter;
+    LioHealth m_health;
 };

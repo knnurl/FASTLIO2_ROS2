@@ -179,6 +179,8 @@ void LidarProcessor::process(SyncPackage &package)
     m_nearest_sq_dist.resize(n);
     m_point_selected_flag.resize(n, 0);
     trimCloudMap();
+    m_health = LioHealth();
+    m_health.points = static_cast<int>(n);
     m_kf->update();
     incrCloudMap();
 }
@@ -243,12 +245,15 @@ void LidarProcessor::updateLossFunc(State &state, SharedState &share_data)
     {
         share_data.valid = false;
         std::cerr << "NO Effective Points!" << std::endl;
+        // The filter keeps its IMU prediction for this scan: say so (B1).
+        m_health = computeLioHealth(share_data.H.setZero(), size, 0, 0.0, static_cast<int>(share_data.iter_num));
         return;
     }
     share_data.valid = true;
     share_data.H.setZero();
     share_data.b.setZero();
     Eigen::Matrix<double, 1, 12> J;
+    double sum_sq_residual = 0.0;
     for (int i = 0; i < effect_feat_num; i++)
     {
         J.setZero();
@@ -268,7 +273,11 @@ void LidarProcessor::updateLossFunc(State &state, SharedState &share_data)
         }
         share_data.H += J.transpose() * m_config.lidar_cov_inv * J;
         share_data.b += J.transpose() * m_config.lidar_cov_inv * norm_p.intensity;
+        sum_sq_residual += static_cast<double>(norm_p.intensity) * norm_p.intensity;
     }
+    // Overwritten every iteration: the last one stands for the scan (B1).
+    m_health = computeLioHealth(share_data.H, size, effect_feat_num, sum_sq_residual,
+                                static_cast<int>(share_data.iter_num) + 1);
 }
 
 CloudType::Ptr LidarProcessor::transformCloud(CloudType::Ptr inp, const M3D &r, const V3D &t)

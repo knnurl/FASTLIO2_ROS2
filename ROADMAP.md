@@ -67,7 +67,9 @@ Neither recording made either stack degrade, so B1 and B3 still have no failure 
 
 ## B. Never lose track
 
-**B1. A real health signal.** Publish at scan rate: the share of points matched to planes, the
+**B1. A real health signal.** *Built 2026-11-16 on branch `b1-health` (`docs/lio_health.md`): published
+per scan, unit tested, replayed on hallway, yaw and loop5. Thresholds are provisional because no recording
+degrades.* Publish at scan rate: the share of points matched to planes, the
 residual, and a degeneracy measure from the filter's information matrix (the weakest direction).
 `lio_health_guard` uses it to request a hover before the odometry visibly breaks. The same signal is
 what MappingUAV's EV sanity guard needs for real drift detection
@@ -75,6 +77,7 @@ what MappingUAV's EV sanity guard needs for real drift detection
 
 **B2. Odometry into EKF2 never jumps.** Relocalization and loop-closure corrections move only the
 map frame (`map → odom`), never `/Odometry`. This is a hard rule, checked by a test.
+*It already held by construction; the test is `tools/eval/test_no_jump_rule.py` (2026-11-16, `b1-health`).*
 
 **B3. Degenerate geometry.** Measure corridors and open halls first (A2). The 2026-10-23 hallway did
 not degrade either stack, so a longer, plainer corridor or a large open hall is still needed.

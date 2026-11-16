@@ -12,6 +12,7 @@
 #include <livox_ros_driver2/msg/custom_msg.hpp>
 #include <pcl/io/pcd_io.h>
 #include "interface/srv/save_maps.hpp"
+#include "interface/msg/lio_health.hpp"
 
 #include "utils.h"
 #include "map_builder/commons.h"
@@ -116,6 +117,7 @@ public:
         m_accum_cloud_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("accumulated_map", 10);
         m_path_pub = this->create_publisher<nav_msgs::msg::Path>("lio_path", 10);
         m_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>("lio_odom", 10);
+        m_health_pub = this->create_publisher<interface::msg::LioHealth>("lio_health", 10);
         m_tf_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
         m_state_data.path.poses.clear();
@@ -423,6 +425,26 @@ public:
         odom_pub->publish(odom);
     }
 
+    // Roadmap B1: one health sample per odometry sample, same stamp.
+    void publishHealth(const LioHealth &h, const double &time)
+    {
+        interface::msg::LioHealth msg;
+        msg.header.frame_id = m_node_config.world_frame;
+        msg.header.stamp = Utils::getTime(time);
+        msg.valid = h.valid;
+        msg.points = h.points;
+        msg.matched = h.matched;
+        msg.match_ratio = h.match_ratio;
+        msg.residual_rms = h.residual_rms;
+        msg.iterations = h.iterations;
+        msg.translation_degeneracy = h.translation_degeneracy;
+        msg.rotation_degeneracy = h.rotation_degeneracy;
+        msg.weakest_translation_dir.x = h.weakest_translation_dir.x();
+        msg.weakest_translation_dir.y = h.weakest_translation_dir.y();
+        msg.weakest_translation_dir.z = h.weakest_translation_dir.z();
+        m_health_pub->publish(msg);
+    }
+
     void publishPath(rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub, const std::string &frame_id, const double &time)
     {
         geometry_msgs::msg::PoseStamped pose;
@@ -483,10 +505,12 @@ public:
             return;
         auto t1 = std::chrono::high_resolution_clock::now();
         BuilderStatus status;
+        LioHealth health;
         {
             std::lock_guard<std::mutex> lock(m_builder_mutex);
             m_builder->process(m_package);
             status = m_builder->status();
+            health = m_builder->lidar_processor()->health();
         }
         auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -502,6 +526,9 @@ public:
         broadCastTF(m_tf_broadcaster, m_node_config.world_frame, m_node_config.body_frame, m_package.cloud_end_time);
 
         publishOdometry(m_odom_pub, m_node_config.world_frame, m_node_config.body_frame, m_package.cloud_end_time);
+        // The scan that initialises the map never reaches the filter: no health for it.
+        if (health.points > 0)
+            publishHealth(health, m_package.cloud_end_time);
 
         // Clouds are transformed only when something will use them: a subscriber now, or the
         // accumulated map. The transforms copy the full-resolution scan.
@@ -580,6 +607,7 @@ private:
     // the save_map service, which runs on another executor thread).
     std::mutex m_builder_mutex;
     std::shared_ptr<tf2_ros::TransformBroadcaster> m_tf_broadcaster;
+    rclcpp::Publisher<interface::msg::LioHealth>::SharedPtr m_health_pub;
     rclcpp::CallbackGroup::SharedPtr m_service_cb_group;
     rclcpp::Service<interface::srv::SaveMaps>::SharedPtr m_save_map_srv;
 };

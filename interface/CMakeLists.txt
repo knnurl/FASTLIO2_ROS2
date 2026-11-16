@@ -8,9 +8,11 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/LioHealth.msg"
   "srv/SaveMaps.srv"
   "srv/Relocalize.srv"
   "srv/IsValid.srv"
@@ -19,7 +21,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GlobalRelocalize.srv"
   "srv/StartMapping.srv"
   "srv/StopMapping.srv"
-  DEPENDENCIES std_msgs
+  DEPENDENCIES std_msgs geometry_msgs
 )
 
 

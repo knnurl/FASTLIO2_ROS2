@@ -37,8 +37,8 @@ Readings:
   structure along its length, while the Mid-360 (−7° to +52°) sees little floor. Height is the axis the
   downward rangefinder backs up, which is the right redundancy to keep (`EKF2_RNG_CTRL 1`).
 - Rotation was weakest on loop5 (minimum 0.085).
-- `lio_node` CPU during these runs: 41 to 48 % of a core on hallway, 22 to 26 % on yaw and loop5. No
-  same-day run without the health code was made, so this is not a measured overhead.
+- Cost of the health code, measured back to back on the yaw recording (100 s each, 2026-11-17): 24.5 and
+  24.4 % of a core without it (main d350196), 24.4 and 24.3 % with it. No measurable cost.
 
 ## Provisional thresholds (to be replaced when a failing recording exists)
 
